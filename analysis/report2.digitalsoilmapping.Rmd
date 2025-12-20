@@ -1,46 +1,44 @@
 ---
 title: "agds_report2_norabisang_digitalsoilmapping"
+author: "Nora Bisang"
 output: html_document
 date: "2025-12-16"
 ---
 ## 1. Introduction
+This report investigates the spatial prediction of soil waterlogging at 100 cm depth
+using digital soil mapping techniques. Random Forest classifiers are trained on
+field observations and environmental covariates, with variable selection using
+Boruta and optional hyperparameter tuning. Model performance is evaluated on an
+independent validation dataset and results are spatially upscaled to the study area.
 
 
-# 2. setup and data acquisition
-Setup
+
+## 2. Setup and data acquisition
+### 2.1 Setup
+
 ```{r}
-#install.packages("renv")
-library(renv)
-library(terra)
 library(here)
 library(dplyr)
+library(tidyr)
 library(readr)
 library(purrr)
 library(ggplot2)
 library(terra)
 library(tidyterra)
-library(leaflet)
 library(sf)
-library(here)
+library(leaflet)
 library(knitr)
-library(dplyr)
-library(tidyr)
-library(readr)
 library(ranger)
 library(parallel)
-getwd() ##I WANT TO GET OUT OF ANALYSIS
-
+library(visdat)
 ```
 
 
 Loading data
 ```{r}
 df_full <- readRDS(here("data-raw", "df_full.rds"))
-saveRDS(df_full, here::here("data-raw", "df_full.rds"))
 
 # # Load soil data from sampling locations
-# readr::write_csv(df_full, "data-raw/df_full.csv") DO I need that CSV?
-
 #get an overview of the df_full 
 head(df_full)
 names(df_full)
@@ -48,7 +46,7 @@ names(df_full)
 ```
 
 
-
+Raster listing
 ```{r}
 #now geodata
 # Get a list with the path to all raster files
@@ -66,6 +64,7 @@ map(
 
 ```
 
+
 ```{r}
 df_obs <- readr::read_csv(
   here::here("data-raw/soildata/berne_soil_sampling_locations.csv")
@@ -76,182 +75,60 @@ head(df_obs) |>
   knitr::kable()
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
-
-
-
-```{r}
-# Load a raster file as example: Picking the slope profile at 2 m resolution
-#I think i could leave that ALL OUT?!
-
-raster_example <- terra::rast(
-  here::here("data-raw/geodata/covariates/Se_slope2m.tif")
-  )
-raster_example
-```
-The code chunks filtered for a random sub-sample of 15 variables. As described in Chapter 5, your task will be to investigate all covariates and find the ones that can best be used for your modelling task.
-
-
-
-```{r}
-#Plot raster example
-terra::plot(raster_example)
-```
-
-To have more flexibility with visualising the data, we can use the ggplot() in combination with the {tidyterra} package.
-
-
-```{r}
-library(tidyterra)
-
-# To have some more flexibility, we can plot this in the ggplot-style as such:
-ggplot2::ggplot() +
-  tidyterra::geom_spatraster(data = raster_example) +
-  ggplot2::scale_fill_viridis_c(
-    na.value = NA,
-    option = "magma",
-    name = "Slope (%) \n"
-    ) +
-  ggplot2::theme_bw() +
-  ggplot2::scale_x_continuous(expand = c(0, 0)) +  # avoid gap between plotting area and axis
-  ggplot2::scale_y_continuous(expand = c(0, 0)) +
-  ggplot2::labs(title = "Slope of the Study Area")
-
-```
-Note that the second plot has different coordinates than the upper one. That is because the data was automatically projected to the World Geodetic System (WGS84, ESPG: 4326).
-
-
-
-The code chunk below help to put our map in a bit more context.
-Background for orientation and the sampling
-A larger map background would be useful to get a better orientation of our location. Also, it would be nice to see where our sampling locations are and to differentiate these locations by whether they are part of the training or testing dataset.
-```{r}
-# To get our map working correctly, we have to ensure that all the input data
-# is in the same coordinate system. Since our Bern data is in the Swiss 
-# coordinate system, we have to transform the sampling locations to the 
-# World Geodetic System first.
-# To look up EPSG Codes: https://epsg.io/
-# World Geodetic System 1984:  4326
-# Swiss CH1903+ / LV95: 2056
-
-# For the raster:
-rasta <- terra::project(raster_example, "+init=EPSG:4326")
-
-# Let's make a function for transforming the sampling locations:
-change_coords <- function(data, from_CRS, to_CRS) {
-  
-  # Check if data input is correct
-  if (!all(names(data) %in% c("id", "lat", "lon"))) {
-    stop("Input data needs variables: id, lat, lon")
-  }
-  
-  # Create simple feature for old CRS
-  sf_old_crs <- sf::st_as_sf(data, coords = c("lon", "lat"), crs = from_CRS)
-  
-  # Transform to new CRS
-  sf_new_crs     <- sf::st_transform(sf_old_crs, crs = to_CRS)
-  sf_new_crs$lat <- sf::st_coordinates(sf_new_crs)[, "Y"]
-  sf_new_crs$lon <- sf::st_coordinates(sf_new_crs)[, "X"]
-  
-  sf_new_crs <- sf_new_crs |> dplyr::as_tibble() |> dplyr::select(id, lat, lon)
-  
-  # Return new CRS
-  return(sf_new_crs)
-}
-
-# Transform dataframes
-coord_train <- df_obs |> 
-  dplyr::filter(dataset == "calibration") |> 
-  dplyr::select(site_id_unique, x, y) |> 
-  dplyr::rename(id = site_id_unique, lon = x, lat = y) |> 
-  change_coords(
-    from_CRS = 2056, 
-    to_CRS = 4326
-    )
-
-coord_test <- df_obs |> 
-  dplyr::filter(dataset == "validation") |> 
-  dplyr::select(site_id_unique, x, y) |> 
-  dplyr::rename(id = site_id_unique, lon = x, lat = y) |> 
-  change_coords(
-    from_CRS = 2056, 
-    to_CRS = 4326
-    )
 
 
 
 
-# Notes: 
-# - This code may only work when installing the development branch of {leaflet}:
-#install.packages("remotes")
-library(remotes)
-#remotes::install_github('rstudio/leaflet')
-# - You might have to do library(terra) for R to find functions needed in the backend
-library(terra)
+This is the map of the sampling locations of our dataset. 
+```{r leaflet_sampling_map, echo=FALSE}
 
-# Let's get a nice color palette now for easy reference
-pal <- leaflet::colorNumeric(
-  "magma",
-  terra::values(rasta),           #I here changed r to rasta as defined above
-  na.color = "transparent"
-  )
+# Transform sampling locations from Swiss CRS to WGS84 for mapping
+sites_sf <- sf::st_as_sf(
+  df_obs,
+  coords = c("x", "y"),
+  crs = 2056
+) |>
+  sf::st_transform(4326)
 
-# Next, we build a leaflet map
-leaflet::leaflet() |> 
-  # As base maps, use two provided by ESRI
-  leaflet::addProviderTiles(leaflet::providers$Esri.WorldImagery, group = "World Imagery") |>
-  leaflet::addProviderTiles(leaflet::providers$Esri.WorldTopoMap, group = "World Topo") |>
-  # Add our raster file
-  leaflet::addRasterImage(
-    rasta,
-    colors = pal,
-    opacity = 0.6,
-    group = "raster"
-    ) |>
-  # Add markers for sampling locations
+# Split calibration and validation sites
+sites_cal <- sites_sf |> dplyr::filter(dataset == "calibration")
+sites_val <- sites_sf |> dplyr::filter(dataset == "validation")
+
+# Interactive map for spatial orientation
+leaflet::leaflet() |>
+  leaflet::addProviderTiles(leaflet::providers$Esri.WorldTopoMap) |>
   leaflet::addCircleMarkers(
-    data = coord_train,
-    lng = ~lon,  # Column name for x coordinates
-    lat = ~lat,  # Column name for y coordinates
-    group = "training",
-    color = "black"
+    data = sites_cal,
+    radius = 4,
+    color = "black",
+    label = "Calibration sites"
   ) |>
-    leaflet::addCircleMarkers(
-    data = coord_test,
-    lng = ~lon,  # Column name for x coordinates
-    lat = ~lat,  # Column name for y coordinates
-    group = "validation",
-    color = "red"
+  leaflet::addCircleMarkers(
+    data = sites_val,
+    radius = 4,
+    color = "red",
+    label = "Validation sites"
   ) |>
-  # Add some layout and legend
-  leaflet::addLayersControl(
-    baseGroups = c("World Imagery","World Topo"),
-    position = "topleft",
-    options = leaflet::layersControlOptions(collapsed = FALSE),
-    overlayGroups = c("raster", "training", "validation")
-    ) |>
   leaflet::addLegend(
-    pal = pal,
-    values = terra::values(rasta),
-    title = "Slope (%)")
+    position = "bottomright",
+    colors = c("black", "red"),
+    labels = c("Calibration", "Validation"),
+    title = "Sampling locations"
+  )
 ```
 
 
 
 
-Now into Data combination
+###2.1 Raster stacking & extraction
+
+Reduction of rasters to the x and y coordinates for which we have soil sampling data. Merging of of soil data and covariates data by their coordinates.
+
+All covariate rasters and sampling coordinates are provided in the Swiss coordinate reference system (CH1903+ / LV95, EPSG:2056), allowing direct extraction of raster values at sampling locations.
 ```{r}
 # Load all files as one batch
-all_rasters <- rast(list_raster) 
-all_rasters
+all_rasters <- rast(list_raster)
 
-```
-
-Above, we have stacked only a random of all available raster data (list_raster) which we have generated previously.
-
-Now, we want to reduce our stacked rasters to the x and y coordinates for which we have soil sampling data. Then, we merge the two dataframes of soil data and covariates data by their coordinates.
-
-```{r}
 # Extract coordinates from sampling locations
 sampling_xy <- df_obs |> 
   dplyr::select(x, y)
@@ -269,6 +146,7 @@ head(df_full) |>
   knitr::kable() 
 
 ```
+
 
 
 Now, not all our covariates may be continuous variables and therefore have to be encoded as factors. We check for the number of unique values in each raster. If the variable is continuous, we expect that there are a lot of different values, we assume that variables with 10 or less different values are categorical variables.
@@ -325,18 +203,17 @@ df_full |>
 #no variable with a substantial amount of missing data. Generally, only pH measurements are lacking, which we should keep in mind when making predictions and inferences
 
 
-#Another great way to explore your data, is using the {visdat} package:
-
+#Visualization
 df_full |> 
-  dplyr::select(1:20) |>   # reduce data for readability of the plot
+  dplyr::select(1:20) |>   
   visdat::vis_miss()
 ```
 
-We are not missing any data in the covariate data. (Mostly sampled data, pH and timeset data is missing.) 
-Missing data is mostly from the same entries, so if we keep only entries where we have pH data, we have a dataset with pracitally no missing data.
+No missing data in the covariate data. (Mostly sampled data, pH and timeset data is missing.) 
+Missing data is mostly from the same entries, by keeping only entries where there is pH data, this will give a dataset with pracitally no missing data.
 
 
-SAVE DATA
+Saving of processed data
 ```{r}
 if (!dir.exists(here::here("data"))) system(paste0("mkdir ", here::here("data")))
 saveRDS(df_full, 
@@ -864,7 +741,7 @@ prob_test <- predict(rf_bor_cv, newdata = x_test, type = "prob")
 
 roc_test <- roc(y_test, prob_test[, "Yes"]) #Area under the curve: 0.8115
 best_threshold_df<- coords(roc_test, "best", ret = "threshold")
-best_threshold<-best_threshold_df$threshold #0.4978333
+best_threshold<-best_threshold_df$threshold
 
 pred_test <- ifelse(prob_test[, "Yes"] > best_threshold, "Yes", "No")
 
@@ -872,7 +749,12 @@ cm_test<-confusionMatrix(factor(pred_test, levels = c("Yes", "No")), y_test)
 cm_test
 
 mosaicplot(cm_test$table)
+
+
 ```
+
+
+
 
 
 ##Question 3 Answer: Does the model with adjusted hyperparameters perform better? 
@@ -925,7 +807,7 @@ probs_1 <- rf_prob$predictions[, "1"]
 ```{r}
 roc_obj <- roc(
   response = df_train[, target],
-  predictor = probs.1,
+  predictor = probs_1,
   levels = c("0", "1"),
   direction = "<"
 )
@@ -967,7 +849,7 @@ library(pROC)
 
 roc_obj_adj <- roc(
   response = df_train[, target],
-  predictor = probs.1.adj,
+  predictor = probs_1_adj,
   levels = c("0", "1"),
   direction = "<"
 )
