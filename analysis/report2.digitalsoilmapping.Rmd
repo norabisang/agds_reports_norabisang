@@ -94,7 +94,7 @@ The code chunks filtered for a random sub-sample of 15 variables. As described i
 
 
 ```{r}
-Plot raster example
+#Plot raster example
 terra::plot(raster_example)
 ```
 
@@ -344,8 +344,8 @@ saveRDS(df_full,
 ```
 
 
-Model training
 
+##Model training
 ```{r}
 df_full <- readRDS(here("data/df_full.rds"))
 head(df_full) |> 
@@ -354,11 +354,11 @@ head(df_full) |>
 
 
 
-First, we have to specify our target and predictor variables. Then, we have to split our dataset into a training and a testing set (here already defined in df_full$dataset as "validation" or "calibration"). 
-Random Forest models cannot deal with NA values, so we have to remove these from our training set.
+Splitting of dataset into a training and a testing set (here already defined "validation" or "calibration"). 
+Removal NAs from our training set.
 
 ```{r}
-# Specify target: if waterlogged at 100
+# Specify target: waterlogged at 100cm depth
 # Make sure target variable is categorical
 df_full$waterlog.100 <- as.factor(df_full$waterlog.100)
 levels(df_full$waterlog.100)
@@ -381,8 +381,6 @@ Accuracy, Sensitivity, Specificity, Precision, Kappa, Balanced Accuracy what add
 ```{r}
 target <- "waterlog.100"
 
-#predictors_train <- predictors_all[predictors_all %in% names(df_train)]
-
 
 # Specify predictors_all: Remove soil sampling and observational data
 predictors_all <- names(df_full)[14:ncol(df_full)]
@@ -390,6 +388,9 @@ predictors_all <- names(df_full)[14:ncol(df_full)]
 cat("The target is:", target,
     "\nThe predictors_all are:", paste0(predictors_all[1:8], sep = ", "), "...")
 ```
+
+
+
 ```{r}
 # Split dataset into training and testing sets
 df_train <- df_full |> filter(dataset == "calibration")
@@ -400,7 +401,7 @@ df_train <- df_train |>  drop_na()
 
 df_test <- df_test |>    drop_na()
 
-# A little bit of verbose (=ausführlich) output:
+# A little bit of verbose output:
 n_tot <- nrow(df_train) + nrow(df_test)
 
 perc_cal <- (nrow(df_train) / n_tot) |> round(2) * 100
@@ -410,15 +411,12 @@ cat("For model training, we have a calibration / validation split of: ",
     perc_cal, "/", perc_val, "%")
 ```
 
-The modelling task is to predict watterlogging at 100cm. Let’s start using the default hyperparameters used by ranger::ranger().
+The model training with default hyperparameters used by ranger::ranger().
 ```{r}
-?ranger::ranger
 
 
-# ranger() crashes when using tibbles (a bit like lazy dataframes), so we are using the
+# ranger() crashes when using tibbles, so we are using the
 # base R notation to enter the data
-# are colums missing?
-setdiff(predictors_all, colnames(df_train))
 
 library(ranger)
 rf_basic <- ranger(
@@ -430,11 +428,10 @@ rf_basic <- ranger(
 
 
 # Print a summary of fitted model
-print(rf_basic) # we have a classification as factors w. 2 levels #target Node size 1
+print(rf_basic)
 
 ```
 
-(Note that: If our target variable was a categorical and not a continuous variable, we would have to set the argument probability = TRUE. The output would then be a probability map from 0-100%.)
 
 
 ##Variable Reduction
@@ -443,8 +440,8 @@ Further hyperparameters will be optimized for model performance and generalisabi
 
 
 
-Our model has 91 variables, but we don’t know anything about their role in influencing the model predictions and how important they are for achieving good predictions.
-VARIABLE importance
+
+Variable importance
 ```{r}
 # Let's run the basic model again but with recording the variable importance
 rf_basic <- ranger(
@@ -516,7 +513,7 @@ ggplot2::ggplot(ggplot2::aes(x = reorder(rowname, meanImp),
 ```
 
 
-Retaining of the ("Confirmed") variables
+Retaining of the "Confirmed" variables
 ```{r}
 # get retained important variables
 predictors_selected <- df_bor |>
@@ -525,7 +522,9 @@ predictors_selected <- df_bor |>
 
 length(predictors_selected)
 ```
-Retraining random forest with only the confirmed predictor variables
+
+
+Retraining random forest with only the "Confirmed" predictor variables
 ```{r}
 # re-train Random Forest model
 rf_bor <- ranger(
@@ -537,7 +536,7 @@ rf_bor <- ranger(
 
 # quick report and performance of trained model object
 rf_bor
-?ranger
+
 ```
 
 Safe files
@@ -545,39 +544,27 @@ Safe files
 # Save relevant data for model testing in the next chapter.
 
 saveRDS(rf_basic,                   
-        here::here("data/rf_for_waterlog.100.basic.rds"))
+        here::here("data/rf_for_waterlog_100_basic.rds"))
 
 saveRDS(rf_bor,                   
-        here::here("data/rf_for_waterlog.100.rds"))
+        here::here("data/rf_for_waterlog_100.rds"))
 
 saveRDS(df_train[, c(target, predictors_all)],
-        here::here("data/cal_for_waterlog.100.basic.rds"))
+        here::here("data/cal_for_waterlog_100.basic.rds"))
 saveRDS(df_test[, c(target, predictors_all)],
-        here::here("data/val_for_waterlog.100.basic.rds"))
+        here::here("data/val_for_waterlog_100.basic.rds"))
 
 saveRDS(df_train[, c(target, predictors_selected)],
-        here::here("data/cal_for_waterlog.100.rds"))
+        here::here("data/cal_for_waterlog_100.rds"))
 
 saveRDS(df_test[, c(target, predictors_selected)],
-        here::here("data/val_for_waterlog.100.rds")) #same also for predictors all?
-
+        here::here("data/val_for_waterlog_100.rds")) 
 ```
 
 
 ##Model Analysis
-```{r}
-# Load random forest model
-rf_basic   <- readRDS(here::here("data/rf_for_waterlog.100.basic.rds"))
-rf_bor   <- readRDS(here::here("data/rf_for_waterlog.100.rds"))
-df_train.basic<-readRDS(here::here("data/cal_for_waterlog.100.rds"))
 
-df_test.basic<-readRDS(here::here("data/val_for_waterlog.100.basic.rds"))
-df_train.bor <- readRDS(here::here("data/cal_for_waterlog.100.basic.rds"))
-df_test.bor  <- readRDS(here::here("data/val_for_waterlog.100.rds"))
-```
-
-
-#Load model and data
+IS THIS LIBRARY NEEDED AGAIN?
 The trained model, calibration and validation data are loaded.
 ```{r}
 library(dplyr)
@@ -595,6 +582,9 @@ library(parallel)
 ```
 
 
+
+##Spatial Upscaling
+Load mask of the area over which the soil will be mapped
 ```{r}
 # Load area to be predicted
 raster_mask <- rast(here("data-raw/geodata/study_area/area_to_be_mapped.tif"))
@@ -630,10 +620,11 @@ rast(random_files[2])
 
 
 
-Now we only stack the covariates that we used in RF.bor
+Now we only stack the selected covariates
 ```{r}
 # Filter that list only for the variables used in the RF
-preds_selected2 <- rf_bor$forest$independent.variable.names
+preds_selected <- rf_bor$forest$independent.variable.names
+
 
 list_raster <- list.files(
   here("data-raw/geodata/covariates/"),
@@ -650,7 +641,8 @@ files_selected <- list_raster |>
 raster_covariates <- rast(files_selected)
 ```
 
-Convert the raster stack into a dataframe - the preferred format for model prediction.
+
+Convert the raster stack into a dataframe 
 ```{r}
 # Get coordinates for which we want data
 df_locations <- df_mask |>
@@ -683,45 +675,46 @@ To test our model for how well it predicts on data it has not used during model 
 # Make predictions for validation sites Bor
 prediction_bor <- predict(
   rf_bor, # RF model
-  data = df_test.bor, # Predictor data
+  data = df_test, # Predictor data
   num.threads = parallel::detectCores() - 1
 )
 
 # Save predictions to validation df
-df_test.bor$pred_boruta_class <- prediction_bor$predictions
+df_test$pred_boruta_class <- prediction_bor$predictions
 
 
 
 #Same thing for basic model for comparison
 prediction_basic <- predict(
   rf_basic, 
-  data = df_test.basic, 
+  data = df_test, 
   num.threads = parallel::detectCores() - 1
 )
 
 
 # Save predictions
-df_test.basic$pred_basic_class <- prediction_basic$predictions
+df_test$pred_basic_class <- prediction_basic$predictions
 
 ```
+
 
 Now Metrics for comparison of the 2 models: a confusion matrix for boruta
 ```{r}
 library(caret)
 library(lattice)
-confusion_bor1 <- confusionMatrix(
-  data = df_test.bor$pred_boruta_class,
-  reference = df_test.bor$waterlog.100,
+confusion_bor <- confusionMatrix(
+  data = df_test$pred_boruta_class,
+  reference = df_test$waterlog.100,
   positive = "1"
 )
 
-confusion_bor1
+confusion_bor
 
 
 #Now same for the basic model
-confusion_basic1<- confusionMatrix(
-  data = df_test.basic$pred_basic_class,
-  reference = df_test.basic$waterlog.100,
+confusion_basic<- confusionMatrix(
+  data = df_test$pred_basic_class,
+  reference = df_test$waterlog.100,
   positive = "1"
 )
 
@@ -735,8 +728,8 @@ It improves the accuracy, kappa, sensitivity, specificity, and balanced accuracy
 
 The OOB values
 ```{r}
-rf_basic$prediction.error   # OOB error for full model = 0.214876
-rf_bor$prediction.error     # OOB error for Boruta model = 0.2
+rf_basic$prediction.error   # OOB error for full model
+rf_bor$prediction.error     # OOB error for Boruta model
 ```
 The OOB further speaks for better model performance of the Boruta model, with a slight decrease in OOB. 
 Thus the reduced set will be used for further analysis. 
@@ -746,8 +739,8 @@ Thus the reduced set will be used for further analysis.
 
 
 ##Prediction maps and spatial upscaling:
-The fitted and tested model can now be used for spatial upscaling - creation of a map of waterlogged at 100cm  values across our study area. For this, we again make predictions with our Random Forest model but we use our covariates dataframe for the study area, instead of only at the sampling locations as done above.
 
+The fitted and tested model will now be used for spatial upscaling - creation of a map of waterlogging at 100cm soil depth across our study area.
 ```{r}
 # Predict (returns class labels because probability=FALSE)
 prediction <- predict(
@@ -757,14 +750,14 @@ prediction <- predict(
 )
 
 # Convert factors to numeric 0/1
-df_predict$prediction <- as.numeric(as.character(prediction$predictions))
+df_predict$prediction <- as.factor(prediction$predictions)
 
 # Prepare data for raster
 df_map <- df_predict |>
   dplyr::select(x, y, prediction)
 
 # Build raster
-raster_pred.bor <- rast(
+raster_pred_bor <- rast(
   df_map,
   crs = "+init=epsg:2056",
   extent = ext(raster_covariates)
@@ -775,15 +768,12 @@ raster_pred.bor <- rast(
 
 Visualization
 ```{r}
-# numeric raster again to factor
-raster_pred.bor.factor <- as.factor(raster_pred.bor)
 
-# Levels get name yes no
-levels(raster_pred.bor.factor) <- data.frame(ID = c(0,1), label = c("No","Yes"))
+levels(raster_pred_bor) <- data.frame(ID = c(0,1), label = c("No","Yes"))
 
 # Plot
 ggplot() +
-  geom_spatraster(data = raster_pred.bor.factor) +
+  geom_spatraster(data = raster_pred_bor) +
   scale_fill_viridis_d(
     na.value = NA,
     option = "viridis",
@@ -795,11 +785,15 @@ ggplot() +
 
 ```
 
+
+
+ERRORR ERROR ERROR
 Now save as GeoTIFF file. 
 ```{r}
+
 terra::writeRaster(
-  raster_pred.bor.factor,
-  "data/raster_pred.bor.factor.tif",
+  raster_pred_bor,
+  "data/raster_pred_bor.tif",
   datatype = "FLT4S",  # FLT4S for floats, INT1U for integers (smaller file)
   filetype = "GTiff",  # GeoTiff format
   overwrite = TRUE     # Overwrite existing file
@@ -819,13 +813,13 @@ library(dplyr)
 
 
 #definition train and test sets
-x_train <- as.data.frame(df_train.bor[, predictors_selected])
-x_test <- as.data.frame(df_test.bor[, predictors_selected])
-y_train <- as.factor(df_train.bor[, target])
-y_test <- df_test.bor[, target]    # factor
+x_train <- as.data.frame(df_train[, predictors_selected])
+x_test <- as.data.frame(df_test[, predictors_selected])
+y_train <- df_train[, target]
+y_test <- df_test[, target] 
 #to ensure that 1 is considered positive and 0 considered negative
 y_train <- factor(y_train, levels = c("1", "0"), labels = c("Yes", "No"))
-y_test  <- factor(y_test,  levels = c("1", "0"), labels = c("Yes", "No")) #for caret
+y_test  <- factor(y_test,  levels = c("1", "0"), labels = c("Yes", "No")) 
 
 
 
@@ -857,20 +851,8 @@ ggplot(rf_bor_cv)                   #visualization
 hyperparameters<-rf_bor_cv$bestTune
 hyperparameters
 
-#Balance WAIT WHY DO I HAVE THIS
-table(y_train) #0: 358, 1: 247
-table(y_test) #0:130, 1 : 70
- 
-
 ```
 
-
-Bestes-Tune-results: 
-mtry = 10: At each split the algorithm considered 10 random predictors.
-
-splitrule = "gini": Standard Gini impurity used to choose splits.
-
-min.node.size = 3: Terminal nodes allowed to contain as few as 3 observations
 
 
 
@@ -878,19 +860,21 @@ Evaluation on the test set
 ```{r}
 library(pROC)
 
-prob.test <- predict(rf_bor_cv, newdata = x_test, type = "prob")
+prob_test <- predict(rf_bor_cv, newdata = x_test, type = "prob")
 
-roc_test <- roc(y_test, prob.test[, "Yes"]) #Area under the curve: 0.8115
+roc_test <- roc(y_test, prob_test[, "Yes"]) #Area under the curve: 0.8115
 best_threshold_df<- coords(roc_test, "best", ret = "threshold")
 best_threshold<-best_threshold_df$threshold #0.4978333
 
-pred.test <- ifelse(prob.test[, "Yes"] > best_threshold, "Yes", "No")
+pred_test <- ifelse(prob_test[, "Yes"] > best_threshold, "Yes", "No")
 
-cm_test<-confusionMatrix(factor(pred.test, levels = c("Yes", "No")), y_test)
+cm_test<-confusionMatrix(factor(pred_test, levels = c("Yes", "No")), y_test)
 cm_test
 
 mosaicplot(cm_test$table)
 ```
+
+
 ##Question 3 Answer: Does the model with adjusted hyperparameters perform better? 
 The tuning slightly improved overall performance (mainly in specificity, positive prediction value and balanced accuracy.
 However the sensitivity slightly dropped so for cases where missed false positives are more costly that false positives I would consider using the untuned model. 
@@ -1024,15 +1008,3 @@ rf_prob_adj$prediction.error # OOB error for adjusted hyperparameters
 We can see that the Boruta selection of parameters is beneficial (slight improvement), while the hyperparameter tuning further but even less strongly improves the performance. Generally we could imply that the hyperparameters chose by default already are quite strong. 
 
 
-
-
-------------------------------------------------------------
-
-
-A thief just stole some of soil and I'm going after him.
-
-
-
-
-
-I'm losing ground.
