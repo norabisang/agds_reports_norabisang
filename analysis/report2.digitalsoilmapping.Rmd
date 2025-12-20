@@ -31,6 +31,9 @@ library(knitr)
 library(ranger)
 library(parallel)
 library(visdat)
+library(ggplot2)
+library(terra)
+library(stringr)
 ```
 
 
@@ -149,21 +152,17 @@ head(df_full) |>
 
 
 
-Now, not all our covariates may be continuous variables and therefore have to be encoded as factors. We check for the number of unique values in each raster. If the variable is continuous, we expect that there are a lot of different values, we assume that variables with 10 or less different values are categorical variables.
+Not all covariates may be continuous. We assume that variables with 10 or less different values are categorical variables.
 
 ```{r}
 vars_categorical <- df_covars |>
-  # Get number of distinct values per variable
   summarise(across(everything(), ~ n_distinct(.))) |>
-  # Turn df into long format for easy filtering
   tidyr::pivot_longer(
     everything(),
     names_to = "variable",
     values_to = "n"
   ) |>
-  # Filter out variables with 10 or less distinct values
   filter(n <= 10) |>
-  # Extract the names of these variables
   pull("variable")
 
 cat(
@@ -200,17 +199,11 @@ df_full |>
   head(10) |>
   knitr::kable()
 
-#no variable with a substantial amount of missing data. Generally, only pH measurements are lacking, which we should keep in mind when making predictions and inferences
-
-
-#Visualization
-df_full |> 
-  dplyr::select(1:20) |>   
-  visdat::vis_miss()
 ```
 
-No missing data in the covariate data. (Mostly sampled data, pH and timeset data is missing.) 
-Missing data is mostly from the same entries, by keeping only entries where there is pH data, this will give a dataset with pracitally no missing data.
+Missing data is mostly from the same entries (affects the same observations), by keeping only entries where there is pH data, this will give a dataset with pracitally no missing data and sample size remains sufficient. 
+
+
 
 
 Saving of processed data
@@ -237,19 +230,12 @@ Removal NAs from our training set.
 ```{r}
 # Specify target: waterlogged at 100cm depth
 # Make sure target variable is categorical
-df_full$waterlog.100 <- as.factor(df_full$waterlog.100)
-levels(df_full$waterlog.100)
-
-#now i check the balance (to see if special weighing is needed before RF training)
-table(df_full$waterlog.100)
-prop.table(table(df_full$waterlog.100))
+df_full$waterlog.100 <- factor(
+  df_full$waterlog.100,
+  levels = c("0", "1")
+)
 ```
-###Exercize 1: Interpretation of balance
 
-There is moderate imbalance, but not to severe.(like 90/10, or 95/5.)
-
-I can thus train RF classifier w.o. class weighting first.
-BUT: accuracy of the model alone needs to be looked at with caution as it would give ~64% accuracy by just always predicting “0” so more tests could be helpful like : Precision, F1, AUC 
 
 ' @AddFurtherMetrics not just accuracy below but in confusion matrix i already have. 
 Accuracy, Sensitivity, Specificity, Precision, Kappa, Balanced Accuracy what additionally but necessarliy could be added is AUC and F1 
@@ -288,20 +274,36 @@ cat("For model training, we have a calibration / validation split of: ",
     perc_cal, "/", perc_val, "%")
 ```
 
+
+
+Balance required after splitting so I think here it is correct. What matters is training balance, not global balance
+```{r}
+#now i check the balance (to see if special weighing is needed before RF training)
+table(df_train$waterlog.100)
+prop.table(table(df_train$waterlog.100))
+```
+
+###Exercize 1: Interpretation of balance
+
+There is moderate imbalance, but not to severe.
+
+Though calibration dataset shows moderate class imbalance, it is not severe enough to require class weighting.
+!!!! NOT 64% BUT: accuracy of the model alone needs to be looked at with caution as it would give ~64% accuracy by just always predicting “0” so more tests could be helpful like : Precision, F1, AUC 
+
+
+
+#####################
+
 The model training with default hyperparameters used by ranger::ranger().
 ```{r}
-
-
-# ranger() crashes when using tibbles, so we are using the
-# base R notation to enter the data
-
-library(ranger)
 rf_basic <- ranger(
-  y = df_train[, target],     # target variable
+  y = df_train[, target],     
   x = df_train[, predictors_all], 
-  seed = 42,# Specify the seed for randomization to reproduce the same model again
+   classification = TRUE,
+  importance = "permutation",
+  seed = 42,
   num.threads = parallel::detectCores() - 1, 
-) # Use all but one CPU core for quick model training
+) 
 
 
 # Print a summary of fitted model
@@ -320,14 +322,6 @@ Further hyperparameters will be optimized for model performance and generalisabi
 
 Variable importance
 ```{r}
-# Let's run the basic model again but with recording the variable importance
-rf_basic <- ranger(
-  y = df_train[, target],     # target variable
-  x = df_train[, predictors_all], # Predictor variables
-  importance = "permutation", # Pick permutation to calculate variable importance
-  seed = 42, # Specify seed for randomization to reproduce the same model again
-  num.threads = parallel::detectCores() - 1, 
-  ) # Use all but one CPU core for quick model training
 
 # Extract the variable importance and create a long tibble
 vi_rf_basic <- rf_basic$variable.importance |>
@@ -340,9 +334,9 @@ gg <- vi_rf_basic |>
   ggplot(aes(x = reorder(variable, value), y = value)) +
   geom_bar(stat = "identity", fill = "grey50", width = 0.75) +
   labs(
-    y = "Change in OOB MSE after permutation",
+    y = "Permutation importance (OOB)",
     x = "",
-    title = "Variable importance based on OOB"
+    title = "RF variable importance (based on OOB)"
   ) +
   theme_classic() +
   coord_flip()
@@ -365,10 +359,10 @@ set.seed(42)
 bor <- Boruta::Boruta(
     y = df_train[, target], 
     x = df_train[, predictors_all],
-    maxRuns = 50, # Number of iterations. Set to 30 or lower if it takes too long
+    maxRuns = 50, # Set to 30 or lower if it takes too long
     num.threads = parallel::detectCores()-1)
 
-# obtain results: a data frame with all variables, ordered by their importance
+
 df_bor <- Boruta::attStats(bor) |> 
   tibble::rownames_to_column() |> 
   dplyr::arrange(dplyr::desc(meanImp))
@@ -441,24 +435,7 @@ saveRDS(df_test[, c(target, predictors_selected)],
 
 ##Model Analysis
 
-IS THIS LIBRARY NEEDED AGAIN?
 The trained model, calibration and validation data are loaded.
-```{r}
-library(dplyr)
-library(tidyr)
-library(readr)
-library(ggplot2)
-library(here)
-library(knitr)
-library(terra)
-library(tidyterra)
-library(stringr)
-library(purrr)
-library(ranger)
-library(parallel)
-```
-
-
 
 ##Spatial Upscaling
 Load mask of the area over which the soil will be mapped
@@ -466,7 +443,7 @@ Load mask of the area over which the soil will be mapped
 # Load area to be predicted
 raster_mask <- rast(here("data-raw/geodata/study_area/area_to_be_mapped.tif"))
 
-# Turn target raster into a dataframe, 1 px = 1 cell
+# Turn target raster into a dataframe
 df_mask <- as.data.frame(raster_mask, xy = TRUE)
 
 
@@ -497,7 +474,7 @@ rast(random_files[2])
 
 
 
-Now we only stack the selected covariates
+Stacking selected variables
 ```{r}
 # Filter that list only for the variables used in the RF
 preds_selected <- rf_bor$forest$independent.variable.names
@@ -508,11 +485,8 @@ list_raster <- list.files(
   full.names = TRUE
 )
 
-
-
-
-files_selected <- list_raster |> 
-  purrr::keep(~ str_detect(.x, str_c(preds_selected2, collapse = "|")))
+files_selected <- list_raster |>
+  purrr::keep(~ stringr::str_detect(.x, stringr::str_c(preds_selected, collapse = "|")))
 
 # Load all rasters as a stack
 raster_covariates <- rast(files_selected)
@@ -521,11 +495,11 @@ raster_covariates <- rast(files_selected)
 
 Convert the raster stack into a dataframe 
 ```{r}
-# Get coordinates for which we want data
+# Get coordinates
 df_locations <- df_mask |>
   dplyr::select(x, y)
 
-# Extract data from covariate raster stack for all gridcells in the raster
+
 df_predict <- terra::extract(
   raster_covariates, # The raster we want to extract from
   df_locations, # A matrix of x and y values to extract for
@@ -541,75 +515,71 @@ df_predict <- cbind(df_locations, df_predict) |>
 
 
 
-
 ##Model Evaluation
-###Exercize 2
+###Exercize 2 Skill Comparison
 Compare the skill of the models with all predictors_all and with the Boruta-informed reduced set of predictors_all.
 
-To test our model for how well it predicts on data it has not used during model training, we first have to load the {ranger} package to load all functionalities to run a Random Forest with the predict() function. Alongside our model, we feed our validation data into the function and set its parallelization settings to use all but one of our computer’s cores.
 
 ```{r}
 # Make predictions for validation sites Bor
 prediction_bor <- predict(
-  rf_bor, # RF model
-  data = df_test, # Predictor data
+  rf_bor,
+  data = df_test[, predictors_selected],
   num.threads = parallel::detectCores() - 1
 )
 
-# Save predictions to validation df
 df_test$pred_boruta_class <- prediction_bor$predictions
 
 
 
-#Same thing for basic model for comparison
 prediction_basic <- predict(
-  rf_basic, 
-  data = df_test, 
+  rf_basic,
+  data = df_test[, predictors_all],
   num.threads = parallel::detectCores() - 1
 )
 
-
-# Save predictions
 df_test$pred_basic_class <- prediction_basic$predictions
 
 ```
 
 
-Now Metrics for comparison of the 2 models: a confusion matrix for boruta
+Metrics for comparison of the two models: confusion matrix
 ```{r}
-library(caret)
-library(lattice)
+#boruta model
 confusion_bor <- confusionMatrix(
   data = df_test$pred_boruta_class,
-  reference = df_test$waterlog.100,
+  reference = df_test[[target]],
   positive = "1"
 )
 
 confusion_bor
 
-
-#Now same for the basic model
-confusion_basic<- confusionMatrix(
+#basic model
+confusion_basic <- confusionMatrix(
   data = df_test$pred_basic_class,
-  reference = df_test$waterlog.100,
+  reference = df_test[[target]],
   positive = "1"
 )
 
-confusion_basic1
+confusion_basic
 
 ```
+
+OOB values
+```{r}
+rf_basic$prediction.error   # OOB error for basic model
+rf_bor$prediction.error     # OOB error for Boruta model
+```
+!!!As concluded above, accuracy alone is insufficient due to class imbalance. Therefore, sensitivity, specificity, precision, balanced accuracy and AUC were considered.
+
 
 The Boruta-based model generalises better to unseen test data.
 It improves the accuracy, kappa, sensitivity, specificity, and balanced accuracy. This is indication that predictor selection by Boruta was useful to remove noisy and irrelevant predictors, improving the performance on unseen data.
 
 
-The OOB values
-```{r}
-rf_basic$prediction.error   # OOB error for full model
-rf_bor$prediction.error     # OOB error for Boruta model
-```
-The OOB further speaks for better model performance of the Boruta model, with a slight decrease in OOB. 
-Thus the reduced set will be used for further analysis. 
+
+The OOB further speaks for better performance of the Boruta model, with a slight decrease in OOB. 
+Thus the reduced set will be used for further analysis. !!!OOB error provides an internal estimate of generalisation error and is consistent with validation results.
 
 
 
@@ -617,16 +587,14 @@ Thus the reduced set will be used for further analysis.
 
 ##Prediction maps and spatial upscaling:
 
-The fitted and tested model will now be used for spatial upscaling - creation of a map of waterlogging at 100cm soil depth across our study area.
+The fitted and tested model will now be used for spatial upscaling - creation of a map of waterlogging at 100cm soil depth across study area.
 ```{r}
-# Predict (returns class labels because probability=FALSE)
 prediction <- predict(
   rf_bor,
   data = df_predict,
   num.threads = parallel::detectCores() - 1
 )
 
-# Convert factors to numeric 0/1
 df_predict$prediction <- as.factor(prediction$predictions)
 
 # Prepare data for raster
@@ -637,8 +605,7 @@ df_map <- df_predict |>
 raster_pred_bor <- rast(
   df_map,
   crs = "+init=epsg:2056",
-  extent = ext(raster_covariates)
-)
+  extent = ext(raster_covariates))
 
 ```
 
@@ -667,34 +634,28 @@ ggplot() +
 ERRORR ERROR ERROR
 Now save as GeoTIFF file. 
 ```{r}
-
 terra::writeRaster(
-  raster_pred_bor,
-  "data/raster_pred_bor.tif",
-  datatype = "FLT4S",  # FLT4S for floats, INT1U for integers (smaller file)
-  filetype = "GTiff",  # GeoTiff format
-  overwrite = TRUE     # Overwrite existing file
+   raster_pred_bor,
+  here::here("data", "raster_pred_bor.tif"),
+   datatype = "FLT4S",  
+   filetype = "GTiff",  
+   overwrite = TRUE
 )
+
 ```
 
 
--------------------------------------------------------------------------------------
+##Exercise 3 - Hyperparameter tuning
 
-##Exercise 3
-
-Hyperparameter tuning: mtry, min.node.size
+Hyperparameter tuning of "mtry" and ""min.node.size".
 ```{r}
-library(caret)
-library(ranger)
-library(dplyr)
-
-
 #definition train and test sets
 x_train <- as.data.frame(df_train[, predictors_selected])
 x_test <- as.data.frame(df_test[, predictors_selected])
 y_train <- df_train[, target]
 y_test <- df_test[, target] 
-#to ensure that 1 is considered positive and 0 considered negative
+
+
 y_train <- factor(y_train, levels = c("1", "0"), labels = c("Yes", "No"))
 y_test  <- factor(y_test,  levels = c("1", "0"), labels = c("Yes", "No")) 
 
@@ -724,7 +685,7 @@ rf_bor_cv <- caret::train(
   importance = "permutation"
 )
 
-ggplot(rf_bor_cv)                   #visualization
+ggplot(rf_bor_cv)                   
 hyperparameters<-rf_bor_cv$bestTune
 hyperparameters
 
@@ -733,14 +694,14 @@ hyperparameters
 
 
 
-Evaluation on the test set
+Evaluation on the test set. I DONT UNDERSTAND THE VALIDATION METRICS HERE
 ```{r}
 library(pROC)
 
 prob_test <- predict(rf_bor_cv, newdata = x_test, type = "prob")
 
 roc_test <- roc(y_test, prob_test[, "Yes"]) #Area under the curve: 0.8115
-best_threshold_df<- coords(roc_test, "best", ret = "threshold")
+best_threshold_df<- coords(roc_test, "best", ret = "threshold") 
 best_threshold<-best_threshold_df$threshold
 
 pred_test <- ifelse(prob_test[, "Yes"] > best_threshold, "Yes", "No")
@@ -750,14 +711,14 @@ cm_test
 
 mosaicplot(cm_test$table)
 
-
 ```
 
 
 
 
 
-##Question 3 Answer: Does the model with adjusted hyperparameters perform better? 
+##Question 3 
+###Does the model with adjusted hyperparameters perform better? 
 The tuning slightly improved overall performance (mainly in specificity, positive prediction value and balanced accuracy.
 However the sensitivity slightly dropped so for cases where missed false positives are more costly that false positives I would consider using the untuned model. 
 
@@ -767,35 +728,20 @@ However the sensitivity slightly dropped so for cases where missed false positiv
 
 
 
-##Exercize 4 
-Consider you inform an infrastructure construction project where waterlogged soils severely jeopardize the stability of the building.(1) Then, consider you inform a project where waterlogged soils are unwanted, but not critical. (2) In both cases, your prediction map of a binary classification is used as a basis and the binary classification is derived from the probabilistic prediction. 
-4.1 How would you chose the threshold in each case? Would you chose the same threshold in both cases? If not, explain why. 
-4.2 Can you think of an analogy of a similarly-natured problem in another realm? (4)
+##Exercize 4 - Fandom Forest: Probability 
 
 
-
-4.1 I would choose the threshold for the cases based on the relative costs/risks of the error types false positive / false negative. For the safety critical building site (case 1) I would choose a lower threshold to avoid false negatives more strictly. For non-critical cases I would choose a higher threshold (to avoid needless and costly intervention). There are algorithms that one can use to estimate appropriate thresholds like the Bayes Decision Theory (BDT). 
-
-4.2 A similar natured problem could be the screening for a severe disease, that needs immediate treatment, where the cost of a false negative (missing a diseased person) would be very big. Whereas for the screening for a non severe, elective issue I would set  the  threshold higher to avoid false positives and unnecessary invasive follow-up.
-
-
-
-
-
-##Probability map
-Map of the probability of waterlogged soil at 1m depth. 
+Probability of waterlogged soil at 1m depth. 
 ```{r}
-library(ranger)
-
 rf_prob <- ranger(
-  y = df_train[, target],              # target variable
-  x = df_train[, predictors_selected], # predictor variables
+  y = df_train[, target],              
+  x = df_train[, predictors_selected], 
   seed = 12, 
-  num.threads = parallel::detectCores() - 1, # All but one CPU core for quicker model training
+  num.threads = parallel::detectCores() - 1, 
   probability= T
 ) 
 
-# quick report and performance of trained model object
+
 rf_prob    
 
 #extraction of the probability of 1
@@ -803,7 +749,7 @@ colnames(rf_prob$predictions)
 probs_1 <- rf_prob$predictions[, "1"]
 ```
 
-
+Reicever-operating-characteristic curve
 ```{r}
 roc_obj <- roc(
   response = df_train[, target],
@@ -819,6 +765,32 @@ plot(roc_obj, col = "blue", lwd = 2, main = "ROC Curve - RF unadjusted hyperpara
 auc(roc_obj)
 
 ```
+
+
+
+
+
+
+
+
+Consider you inform an infrastructure construction project where waterlogged soils severely jeopardize the stability of the building.(1) Then, consider you inform a project where waterlogged soils are unwanted, but not critical. (2) In both cases, your prediction map of a binary classification is used as a basis and the binary classification is derived from the probabilistic prediction. 
+4.1 How would you chose the threshold in each case? Would you chose the same threshold in both cases? If not, explain why. 
+4.2 Can you think of an analogy of a similarly-natured problem in another realm? (4)
+
+
+
+4.1 I would choose the threshold for the cases based on the relative costs/risks of the error types false positive / false negative. For the safety critical building site (case 1) I would choose a lower threshold to avoid false negatives more strictly. For non-critical cases I would choose a higher threshold (to avoid needless and costly intervention). There are algorithms that one can use to estimate appropriate thresholds like the Bayes Decision Theory (BDT). 
+
+4.2 A similar natured problem could be the screening for a severe disease, that needs immediate treatment, where the cost of a false negative (missing a diseased person) would be very big. Whereas for the screening for a non severe, elective issue I would set  the  threshold higher to avoid false positives and unnecessary invasive follow-up.
+
+
+
+
+
+
+-----
+
+
 
 
 Train Model with adjusted hyperparameters: 
@@ -876,16 +848,17 @@ legend("bottomright", legend=c("Prob. NA","Prob. A"), col=c("blue","red"), lwd=2
 
 ```
 
-Interpretation Roc/ AUC
-Both models perform well above random and good (chapter 9.4.1 handful of pixels:  AUC takes values between 0 and 1, with 1 being the best and values of 0.5 (=random) and below being bad.)
-There is only a very slight improvement of the AUC from the untuned model (AUC: 0.8632) to the model with tuned hyperparameter (AUC: 0.8648). 
-
-
 OOB prediction error
 ```{r}
 rf_prob$prediction.error # OOB error for unadjusted hyperparameters
 rf_prob_adj$prediction.error # OOB error for adjusted hyperparameters
 ```
+
+Interpretation Roc/ AUC
+Both models perform well above random and good (chapter 9.4.1 handful of pixels:  AUC takes values between 0 and 1, with 1 being the best and values of 0.5 (=random) and below being bad.)
+There is only a very slight improvement of the AUC from the untuned model (AUC: 0.8632) to the model with tuned hyperparameter (AUC: 0.8648). 
+
+
 
 We can see that the Boruta selection of parameters is beneficial (slight improvement), while the hyperparameter tuning further but even less strongly improves the performance. Generally we could imply that the hyperparameters chose by default already are quite strong. 
 
