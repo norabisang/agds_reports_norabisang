@@ -22,7 +22,8 @@ This repository contains two geospatial workflows developed for the AGDS course:
 * Includes hyperparameter tuning (via `caret`/`ranger`) to optimize model generalization.
 
 
-## Project structure: 
+## Project structure
+
 ```text
 agds_reports_norabisang/
 ├── analysis/       # RMarkdown analysis reports
@@ -50,7 +51,7 @@ Raw data are obtained from external sources and are not modified:
 * **Spatial Predictions:** `raster_pred_bor.tif` (GeoTIFF format).
 
 
-##Reproducibility
+## Reproducibility
 
 This project uses `{renv}` to ensure a consistent R environment.
 
@@ -64,7 +65,7 @@ renv::restore()
 ```
 
 
-##Key Outputs
+## Key Outputs
 
 * **Maps:** Predictions of waterlogging.
 * **Model Stats:** Evaluation of GDD phenology and RF classification accuracy.
