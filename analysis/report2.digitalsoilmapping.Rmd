@@ -550,11 +550,10 @@ df_predict <- cbind(df_locations, df_predict) |>
 ```
 
 
-
-
-##Prediction maps and spatial upscaling:
-
+## 8. Spatial prediction and mapping
 The fitted and tested model will now be used for spatial upscaling - creation of a map of waterlogging at 100cm soil depth across study area.
+
+### 8.1 Pixel-wise prediction
 ```{r}
 prediction <- predict(
   rf_bor,
@@ -562,13 +561,20 @@ prediction <- predict(
   num.threads = parallel::detectCores() - 1
 )
 
-df_predict$prediction <- as.factor(prediction$predictions)
+df_predict$prediction <- factor(
+  prediction$predictions,
+  levels = c("0", "1"),
+  labels = c("No", "Yes")
+)
+```
 
+### 8.2 Raster reconstruction
+```{r}
 # Prepare data for raster
 df_map <- df_predict |>
   dplyr::select(x, y, prediction)
 
-# Build raster
+# Convert prediction dataframe to raster
 raster_pred_bor <- rast(
   df_map,
   crs = "+init=epsg:2056",     
@@ -577,12 +583,8 @@ raster_pred_bor <- rast(
 ```
 
 
-Visualization
+### 8.3 Map visualization
 ```{r}
-
-levels(raster_pred_bor) <- data.frame(ID = c(0,1), label = c("No","Yes"))
-
-# Plot
 ggplot() +
   geom_spatraster(data = raster_pred_bor) +
   scale_fill_viridis_d(
@@ -592,13 +594,13 @@ ggplot() +
     labels = c("No","Yes")
   ) +
   theme_classic() +
-  labs(title = "Waterlogging at 100 cm (Yes / No)")
+  labs(title = "Predicted waterlogging at 100 cm depth")
 
 ```
 
 
 
-Save as GeoTIFF file. 
+### 8.4 Save GeoTIFF
 ```{r}
 terra::writeRaster(
    raster_pred_bor,
@@ -619,7 +621,8 @@ terra::writeRaster(
 x_train <- as.data.frame(df_train[, predictors_selected])
 x_test  <- as.data.frame(df_test[, predictors_selected])
 
-# Rearrange target: positive class alphabetically first (caret requirement)
+# Recode target so that the positive class is alphabetically first
+# (caret requirement for ROC / AUC calculation)
 y_train <- factor(
   ifelse(df_train[[target]] == "1", "A_Yes", "B_No")
 )
@@ -630,6 +633,7 @@ y_test <- factor(
 ```
 
 
+### 9.2 Grid tuning
 Hyperparameter tuning of "mtry" and ""min.node.size".
 While the default "minimum node size" for classification is 1, I restricted the tuning grid to values of 2 and above to ensure generaliseability and reduce the risk of the individual trees overfitting to noise in the training set.
 ```{r}
@@ -646,7 +650,10 @@ ctrl <- trainControl(
   classProbs = TRUE,           
   summaryFunction = twoClassSummary
 )
+```
 
+### 9.3 Model training
+```{r}
 set.seed(12)
 rf_bor_cv <- caret::train(
   x = x_train,
@@ -666,18 +673,27 @@ hyperparameters
 
 
 
-
+## 10. Evaluation on independent validation set
 Evaluation on the test set. I DONT UNDERSTAND THE VALIDATION METRICS HERE
 ```{r}
+# Predict class probabilities on validation data
 prob_test <- predict(rf_bor_cv, newdata = x_test, type = "prob")
+```
 
+### 10.2 ROC curve based on probabilities
+```{r}
 roc_test <- roc(y_test, prob_test[, "A_Yes"]) 
 best_threshold_df<- coords(roc_test, "best", ret = "threshold") 
 best_threshold<-best_threshold_df$threshold
 
+# Convert probabilities to classes using optimal threshold
 pred_test <- ifelse(prob_test[, "A_Yes"] > best_threshold, "A_Yes", "B_No")
 
+pred_test <- factor(pred_test, levels = levels(y_test))
+
+# Confusion matrix
 cm_test<-confusionMatrix(factor(pred_test, levels = c("A_Yes", "B_No")), y_test)
+
 cm_test
 
 mosaicplot(cm_test$table)
@@ -690,6 +706,10 @@ mosaicplot(cm_test$table)
 
 ##Question 3 
 ###Does the model with adjusted hyperparameters perform better? 
+!!!Validation metrics are derived from thresholded probability predictions.
+The ROC curve evaluates discrimination ability independently of a fixed threshold, while the confusion matrix summarizes classification performance at the selected operating point.
+
+
 The tuning slightly improved overall performance (mainly in specificity, positive prediction value and balanced accuracy.
 However the sensitivity slightly dropped so for cases where missed false positives are more costly that false positives I would consider using the untuned model. 
 
@@ -698,11 +718,9 @@ However the sensitivity slightly dropped so for cases where missed false positiv
 
 
 
+## 10. Random Forest probability model (Exercise 4)
 
-##Exercize 4 - Fandom Forest: Probability 
-
-
-Probability of waterlogged soil at 1m depth. 
+### 10.1 Probability RF model
 ```{r}
 rf_prob <- ranger(
   y = df_train[, target],              
@@ -716,11 +734,10 @@ rf_prob <- ranger(
 rf_prob    
 
 #extraction of the probability of 1
-colnames(rf_prob$predictions)
 probs_1 <- rf_prob$predictions[, "1"]
 ```
 
-Reicever-operating-characteristic curve
+### 10.2 ROC and AUC analysis (OOB based)
 ```{r}
 roc_obj <- roc(
   response = df_train[, target],
