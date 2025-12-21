@@ -579,7 +579,7 @@ It improves the accuracy, kappa, sensitivity, specificity, and balanced accuracy
 
 
 The OOB further speaks for better performance of the Boruta model, with a slight decrease in OOB. 
-Thus the reduced set will be used for further analysis. !!!OOB error provides an internal estimate of generalisation error and is consistent with validation results.
+Thus the reduced set will be used for further analysis. !!! OOB error provides an internal estimate of generalisation error and is consistent with validation results.
 
 
 
@@ -604,7 +604,7 @@ df_map <- df_predict |>
 # Build raster
 raster_pred_bor <- rast(
   df_map,
-  crs = "+init=epsg:2056",
+  crs = "+init=epsg:2056",     
   extent = ext(raster_covariates))
 
 ```
@@ -631,8 +631,7 @@ ggplot() +
 
 
 
-ERRORR ERROR ERROR
-Now save as GeoTIFF file. 
+Save as GeoTIFF file. 
 ```{r}
 terra::writeRaster(
    raster_pred_bor,
@@ -647,25 +646,30 @@ terra::writeRaster(
 
 ##Exercise 3 - Hyperparameter tuning
 
-Hyperparameter tuning of "mtry" and ""min.node.size".
 ```{r}
-#definition train and test sets
+# Select predictors
 x_train <- as.data.frame(df_train[, predictors_selected])
-x_test <- as.data.frame(df_test[, predictors_selected])
-y_train <- df_train[, target]
-y_test <- df_test[, target] 
+x_test  <- as.data.frame(df_test[, predictors_selected])
+
+# Rearrange target: positive class alphabetically first (caret requirement)
+y_train <- factor(
+  ifelse(df_train[[target]] == "1", "A_Yes", "B_No")
+)
+
+y_test <- factor(
+  ifelse(df_test[[target]] == "1", "A_Yes", "B_No")
+)
+```
 
 
-y_train <- factor(y_train, levels = c("1", "0"), labels = c("Yes", "No"))
-y_test  <- factor(y_test,  levels = c("1", "0"), labels = c("Yes", "No")) 
-
-
-
+Hyperparameter tuning of "mtry" and ""min.node.size".
+While the default "minimum node size" for classification is 1, I restricted the tuning grid to values of 2 and above to ensure generaliseability and reduce the risk of the individual trees overfitting to noise in the training set.
+```{r}
 set.seed(12)
 rf_grid <- expand.grid(
-  mtry = c(2, 5, 6, 10, 15), #how many predictors to try at each split.
-  splitrule = "gini",         #split rule for classifications
-  min.node.size = c(1,2,3,4,5,10) #here smallest number of samples allowed terminal node
+  mtry = c(2, 5, 10), 
+  splitrule = "gini",         
+  min.node.size = c(2,5,10) 
 )
 
 ctrl <- trainControl(
@@ -682,7 +686,8 @@ rf_bor_cv <- caret::train(
   method = "ranger",
   tuneGrid = rf_grid,
   trControl = ctrl,
-  importance = "permutation"
+  importance = "permutation",
+   metric = "ROC"
 )
 
 ggplot(rf_bor_cv)                   
@@ -696,17 +701,15 @@ hyperparameters
 
 Evaluation on the test set. I DONT UNDERSTAND THE VALIDATION METRICS HERE
 ```{r}
-library(pROC)
-
 prob_test <- predict(rf_bor_cv, newdata = x_test, type = "prob")
 
-roc_test <- roc(y_test, prob_test[, "Yes"]) #Area under the curve: 0.8115
+roc_test <- roc(y_test, prob_test[, "A_Yes"]) 
 best_threshold_df<- coords(roc_test, "best", ret = "threshold") 
 best_threshold<-best_threshold_df$threshold
 
-pred_test <- ifelse(prob_test[, "Yes"] > best_threshold, "Yes", "No")
+pred_test <- ifelse(prob_test[, "A_Yes"] > best_threshold, "A_Yes", "B_No")
 
-cm_test<-confusionMatrix(factor(pred_test, levels = c("Yes", "No")), y_test)
+cm_test<-confusionMatrix(factor(pred_test, levels = c("A_Yes", "B_No")), y_test)
 cm_test
 
 mosaicplot(cm_test$table)
@@ -788,12 +791,8 @@ Consider you inform an infrastructure construction project where waterlogged soi
 
 
 
------
 
-
-
-
-Train Model with adjusted hyperparameters: 
+Train Probability Model with adjusted hyperparameters: 
 ```{r}
 #Now for boruta selected variables
 rf_prob_adj <- ranger(
@@ -817,8 +816,6 @@ probs_1_adj <- rf_prob_adj$predictions[, "1"]
 
 ROC hyperparameters adjusted
 ```{r}
-library(pROC)
-
 roc_obj_adj <- roc(
   response = df_train[, target],
   predictor = probs_1_adj,
