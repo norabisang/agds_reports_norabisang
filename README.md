@@ -21,6 +21,7 @@ This repository contains two geospatial workflows developed for the AGDS course:
 * Utilizes **Random Forest** trained on environmental covariates.
 * Includes hyperparameter tuning (via `caret`/`ranger`) to optimize model generalization.
 
+---
 
 ## Project structure
 
@@ -36,7 +37,10 @@ agds_reports_norabisang/
 └── LICENSE         # Project license
 ```
 
+---
+
 ## Data
+
 ### Raw data (`data-raw/`)
 Raw data are obtained from external sources and are not modified:
 
@@ -50,6 +54,7 @@ Raw data are obtained from external sources and are not modified:
 * **Trained Models:** RF model objects saved as `.rds` files.
 * **Spatial Predictions:** `raster_pred_bor.tif` (GeoTIFF format).
 
+---
 
 ## Reproducibility
 
@@ -63,7 +68,7 @@ This project uses `{renv}` to ensure a consistent R environment.
 renv::restore()
 
 ```
-
+---
 
 ## Key Outputs
 
