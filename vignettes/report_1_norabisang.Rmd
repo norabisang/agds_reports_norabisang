@@ -1,8 +1,0 @@
----
-title: "report_1_norabisang"
-output: html_document
----
-
-```{r}
-library(here)
-file.exists(here("xy", "df.csv")) # use here("data", "df.csv") instead of here("data/df.csv") to make it portable also to non-UNIX-based systems.

@@ -4,7 +4,8 @@
 
 **Course:** Applied Geodata Science (AGDS)
 
-**Acknowledgments:** Code derived from Benjamin Stocker and Fabian Bernhard.
+**Acknowledgments:** Code derived from Benjamin Stocker and Fabian Bernhard. 
+ChatGPT was used for error explanation and debugging as well as ReadMe structure provision. 
 
 ## Project overview
 This repository contains two geospatial workflows developed for the AGDS course:
@@ -19,7 +20,7 @@ This repository contains two geospatial workflows developed for the AGDS course:
 
 * Prediction of waterlogged soils at **100 cm depth**.
 * Utilizes **Random Forest** trained on environmental covariates.
-* Includes hyperparameter tuning (via `caret`/`ranger`) to optimize model generalization.
+* Includes hyperparameter tuning to optimize model generalization.
 
 ---
 
@@ -42,7 +43,7 @@ agds_reports_norabisang/
 ## Data
 
 ### Raw data (`data-raw/`)
-Raw data are obtained from external sources and are not modified:
+The raw data is not modified and obtained from external sources.
 
 * **Remote Sensing:** PhenoCam (via `phenocamr`), DAYMET temperature data, and MODIS MCD12Q2.
 * **Note:** MODIS data requires an [Earthdata login](https://urs.earthdata.nasa.gov/).
@@ -58,25 +59,50 @@ Raw data are obtained from external sources and are not modified:
 
 ## Reproducibility
 
-This project uses `{renv}` to ensure a consistent R environment.
+To reproduce the analysis:
 
-1. **Clone the repository** to your local machine.
-2. **Open the R Project** (`.Rproj` file).
-3. **Restore dependencies** by running the following in the R console:
+1. Clone the repository.
+2. Open the R Project file (`.Rproj`) in RStudio.
+3. Install required packages (see list below).
+4. Knit the R Markdown files in the `analysis/` directory.
 
-```r
-renv::restore()
+The analysis was created with recent versions of the listed R packages.
 
-```
+
+### Required R packages
+
+- dplyr
+- ggplot2
+- terra
+- sf
+- leaflet
+- ranger
+- caret
+- phenocamr
+- appeears
+- MODISTools
+- tidyterra
+- lubridate
+- signal
+- pROC
+- here
+
+
 ---
 
 ## Key Outputs
 
-* **Maps:** Predictions of waterlogging.
-* **Model Stats:** Evaluation of GDD phenology and RF classification accuracy.
-* **Visuals:** Statistical comparisons and spatial maps stored in `fig/`.
+- **Spatial Prediction Maps:** Binary map of soil waterlogging at 100 cm depth.
+- **Model Performance Metrics:** Evaluation of Random Forest classification models (accuracy, sensitivity, specificity, balanced accuracy, ROC/AUC).
+- **Phenology Model Results:** Calibrated GDD based leaf-out prediction and spatially scaled phenology maps.
+- **Figures and Visuals:** Statistical comparisons, ROC curves, and spatial maps.
 
-Rendered HTML reports can be found in the analysis/ directory after knitting.
+
+
+Rendered HTML versions of the reports are included in the `analysis/` directory.
+
+
+
 
 
 
