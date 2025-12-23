@@ -3,6 +3,7 @@ title: "AGDS Report 1 - Phenology Modelling and Spatial Scaling"
 author: "Nora Bisang"
 output: html_document
 date: "2025-12-16"
+---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
@@ -12,7 +13,7 @@ knitr::opts_chunk$set(
 )
 ```
 
----
+
 ## 1. Introduction
 
 This exercize covers the improvement of a temperature-based growing degree day (GDD) phenology model as well as spatial upscaling. Phenological transition dates, which are derived from PhenoCam data are used to create a leaf out model. This is then applied spatially using DAYMET temperature data and compared to the MODIS MCD12Q2 phenology product. 
@@ -394,6 +395,7 @@ harvard_temp.smoothed <- harvard_temp.smoothed %>%
 ```
 
 
+
 Comparison of the RMSE Smoothened Temperatures vs unsmoothened
 ```{r}
 # Compare RMSE before and after smoothing
@@ -417,22 +419,26 @@ rmse_smoothed
 
 ```
 
+
 The unsmoothed GDD model achieved an RMSE of 4.39 days, while the model using smoothed temperature inputs achieved a slightly higher RMSE of 4.70 days. This indicates that temperature smoothing does not improve, but rather slightly degrades, the performance for leaf-out timing of this threshold-based GDD. 
 One possible explanation is that also short-term warming in early spring contribute meaningfully to heat accumulation and biological development. And as smoothing dampens these signals, it delays the day of threshold reaching. 
 Short: the results indicate that the original model is already robust and that temperature smoothing is not beneficial in this context.
 
 
 
-##7 Comparison with MODIS phenology - Question 3
-Statistically compare the results with the MODIS MCD12Q2 phenology product.
+## 7 Comparison with MODIS phenology - Exercize 3
 
 ### 7.1 Spatial and Statistical Comparison
-### 7.2 describe why you might or might not see the same patterns
-### 7.3 Interpretation and special case of 2010
+Statistically and Spatially compare the results with the MODIS MCD12Q2 phenology product.
+
+### 7.2 Patterns
+Describe why you might or might not see the same patterns
+
+### 7.3 Special case of 2010
 Consider that 2010 was a ‘special’ year for the north east of the US
 
 
-###7.1
+### 7.1 Spatial and Statistical Comparison
 
 Spatial comparison showing the DOY difference between the prediction and the MODIS data.   
 ```{r}
@@ -550,11 +556,11 @@ mean(df$GDD - df$MODIS, na.rm = TRUE) #9.973585
 Spatial comparison (pixelwise) between the GDD phenology predictions and the MODIS observations shows moderate positive correlation with r = 0.39. THis indicates that the model captures larger-scale spatial gradients in phenology. Both datasets show climatic gradients related to latitude and difference in temperature from coast to inland. However, the model predicts leaf-out on average 9.97 days later than observed by MODIS, which could be due to systematic positive bias. Reasons for that could be: differences in phenological definitions, spatial resolution, vegetation heterogeneity, as well as the  possibility of MODIS detecting canopy greening earlier than temperature-based leaf-out thresholds.
 
 
-### 7.2 
+### 7.2 Patterns
 Similar spatial patterns are expected because both approaches are somehow linked to temperature: directly in the GDD model through accumulated mean temperature, and indirectly in the MODIS observations through temperature-driven vegetation greening. Still, several factors can lead to differences between the two products. As MODIS does not measure temperature but detects changes in surface reflectance, it can be influenced by cloud cover, snow, and sensor related noise. Further, the GDD model assumes homogeneous vegetation responses and does not account for heterogeneity in species composition, microclimate and topography. Differences in spatial resolution between the DAYMET-driven model and the MODIS observations could further contribute to mismatches, particularly in heterogeneous landscapes.
 
 
-### 7.3
+### 7.3 Special case of 2010
 
 ```{r}
 library(lubridate)

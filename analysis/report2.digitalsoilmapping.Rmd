@@ -5,6 +5,15 @@ output: html_document
 date: "2025-12-16"
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,     
+  message = FALSE,   
+  warning = FALSE   
+)
+```
+
+
 ## 1. Introduction
 This report investigates the spatial prediction of soil waterlogging at 100 cm depth
 using digital soil mapping techniques. Random Forests are trained on
@@ -121,6 +130,7 @@ leaflet::leaflet() |>
 
 
 
+
 ## 3. Covariate preparation
 
 ### 3.1 Raster stacking
@@ -134,6 +144,7 @@ all_rasters <- rast(list_raster)
 sampling_xy <- df_obs |> 
   dplyr::select(x, y)
 ```
+
 
 ### 3.2 Extraction at sampling locations
 Merging of of soil data and covariates data by their coordinates.
@@ -180,6 +191,7 @@ df_full <- df_full |>
 
 ```
 
+
 ### 3.4 Missing Data
 Missing data is examined by computing the percentage of non-missing observations for each predictor variable. For subsequent analysis dataset can be used without removal of variable, as the proportion of missing values is low.
 ```{r}
@@ -209,6 +221,8 @@ if (!dir.exists(here::here("data"))) system(paste0("mkdir ", here::here("data"))
 saveRDS(df_full, 
         here::here("data/df_full.rds"))
 ```
+
+
 
 
 
@@ -254,6 +268,7 @@ cat("For model training, we have a calibration / validation split of: ",
 ```
 
 
+
 ### 4.4 Exercise 1 – Class balance
 
 ```{r}
@@ -290,6 +305,7 @@ print(rf_basic)
 ```
 
 
+
 ## 5. Variable selection using Boruta
 
 The number of variables will be reduced to avoid collinearity and the risk of overfitting.
@@ -320,6 +336,7 @@ gg
 
 
 ```
+
 
 ### 5.2 Variable Selection
 Note that this algorithms does not assess all possible combinations of predictors_all and may thus not find the “globally” optimal model.
@@ -368,6 +385,7 @@ predictors_selected <- df_bor |>
 length(predictors_selected)
 ```
 
+
 ### 5.4 Retaining RF with the "Confirmed" variables
 Retraining random forest with only the "Confirmed" predictor variables
 ```{r}
@@ -384,6 +402,7 @@ rf_bor <- ranger(
 rf_bor
 
 ```
+
 
 ### 5.5 Safe files
 ```{r}
@@ -404,8 +423,11 @@ saveRDS(df_test[, c(target, predictors_selected)],
 ```
 
 
+
+
 ## 6. Model Analysis
-### Exercize 2 Model Comparison
+
+### Model Comparison - Exercize 2
 Compare the skill of the models with all predictors and with the Boruta-informed reduced set of predictors.
 
 ###6.1 Predictions
@@ -475,6 +497,7 @@ The OOB further speaks for better performance of the Boruta model, with a decrea
 
 The outperformance of the reduced predicot model is indication that predictor selection by Boruta was useful to remove noisy and irrelevant predictors, improving the performance on unseen data (generaliseability).
 Thus the reduced set will be used for further analysis.
+
 
 
 
@@ -704,9 +727,11 @@ mosaicplot(cm_test$table)
 
 
 
-##Question 3 
-###Does the model with adjusted hyperparameters perform better? 
-Comparing the two models, the Untuned Model performs better across all RF-default metrics. It is roughly 1.5% more accurate. That the 95% CIs overlap (72.7%–84.4% for the untuned model and 71.1%-83.1%) tells us that though the untuned model is better, both models perform similarly wee and are stable and reliable. 
+## Question 3 
+
+Does the model with adjusted hyperparameters perform better? 
+
+Comparing the two models, the Untuned Model performs better across all RF-default metrics. It is ~ 1.5% more accurate. That the 95% CIs overlap (72.7%–84.4% for the untuned model and 71.1%-83.1% for the tuned model) tells us that though the untuned model is better, both models perform similarly well and are stable and reliable. 
 For the final mapping of waterlogging at 100 cm depth, the default settings provided the most reliable results and though this model should be used for spatial upscaling.
 
 
@@ -751,8 +776,7 @@ auc(roc_obj_adj)
 
 ```
 
-
-OOB prediction error
+Brier Score
 ```{r}
 rf_prob_adj$prediction.error 
 ```
@@ -764,17 +788,25 @@ These values indicate that the model is not simply guessing categories, but rath
 
 
 
-##Question 4
+## Question 4
+
 Consider you inform an infrastructure construction project where waterlogged soils severely jeopardize the stability of the building.(1) Then, consider you inform a project where waterlogged soils are unwanted, but not critical. (2) In both cases, your prediction map of a binary classification is used as a basis and the binary classification is derived from the probabilistic prediction. 
+
+
 ### 4.1 
+
 How would you chose the threshold in each case? Would you chose the same threshold in both cases? If not, explain why. 
+
 ###4.2 
+
 Can you think of an analogy of a similarly-natured problem in another realm? 
 
 
-4.1 I would choose the threshold for the cases based on the relative costs/risks of the error types false positive / false negative. For the "safety critical building site" (case 1) I would choose a lower threshold to avoid false negatives more strictly. For non-critical cases I would choose a higher threshold (to avoid unneccessary and costly intervention). There are algorithms that one can use to estimate appropriate thresholds like the Bayes Decision Theory (BDT) on which I would base this decision. 
+4.1
+I would choose the threshold for the cases based on the relative costs/risks of the error types false positive / false negative. For the "safety critical building site" (case 1) I would choose a lower threshold to avoid false negatives more strictly. For non-critical cases I would choose a higher threshold (to avoid unneccessary and costly intervention). There are algorithms that one can use to estimate appropriate thresholds like the Bayes Decision Theory (BDT) on which I would base this decision. 
 
-4.2 A similarly natured problem could be the screening for a severe or contageant disease, that needs immediate treatment, where the cost of a false negative (missing a diseased person) would be very big. Whereas for the screening for a non severe and less contageant elective issue, I would set  the  threshold higher to avoid false positives and unnecessary invasive follow-up.
+4.2 
+A similarly natured problem could be the screening for a severe or contageant disease, that needs immediate treatment, where the cost of a false negative (missing a diseased person) would be very big. Whereas for the screening for a non severe and less contageant elective issue, I would set  the  threshold higher to avoid false positives and unnecessary invasive follow-up.
 
 
 
