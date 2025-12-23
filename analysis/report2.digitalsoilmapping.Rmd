@@ -1,5 +1,5 @@
 ---
-title: "agds_report2_norabisang_digitalsoilmapping"
+title: "AGDS Report 2 - digital soil mapping"
 author: "Nora Bisang"
 output: html_document
 date: "2025-12-16"
@@ -373,11 +373,12 @@ Retraining random forest with only the "Confirmed" predictor variables
 ```{r}
 # re-train Random Forest model
 rf_bor <- ranger(
-  y = df_train[, target], # target variable
-  x = df_train[, predictors_selected], # Predictor variables
-  seed = 42, # Specify the seed for randomization to reproduce the same model again
+  y = df_train[, target], 
+  x = df_train[, predictors_selected], 
+  seed = 42, 
+  classification= T, 
   num.threads = parallel::detectCores() - 1,
-) # Use all but one CPU core for quick model training
+  ) 
 
 # quick report and performance of trained model object
 rf_bor
@@ -417,12 +418,6 @@ prediction_bor <- predict(
 
 df_test$pred_boruta_class <- prediction_bor$predictions
 
-# Align factor levels between predictions and reference to avoid caret warnings
-df_test$pred_boruta_class <- factor(
-  df_test$pred_boruta_class,
-  levels = levels(df_test[[target]])
-)
-
 
 
 prediction_basic <- predict(
@@ -432,23 +427,28 @@ prediction_basic <- predict(
 )
 
 df_test$pred_basic_class <- prediction_basic$predictions
-df_test$pred_basic_class <- factor(
-  df_test$pred_basic_class,
-  levels = levels(df_test[[target]])
-)
 
 ```
 
 
 ### 6.2 Confusion matrixes
 ```{r}
+# Convert predictions to factor
+df_test$pred_boruta_class <- factor(df_test$pred_boruta_class, levels = c(0, 1))
+df_test$pred_basic_class <- factor(df_test$pred_basic_class, levels = c(0, 1))
+
+# Convert target to factor 
+df_test[[target]] <- factor(df_test[[target]], levels = c(0, 1))
+
+#boruta model
 confusion_bor <- confusionMatrix(
   data = df_test$pred_boruta_class,
-  reference = df_test[[target]],
+  reference = df_test[,target],
   positive = "1"
 )
 
 confusion_bor
+
 
 #basic model
 confusion_basic <- confusionMatrix(
@@ -475,7 +475,6 @@ The OOB further speaks for better performance of the Boruta model, with a decrea
 
 The outperformance of the reduced predicot model is indication that predictor selection by Boruta was useful to remove noisy and irrelevant predictors, improving the performance on unseen data (generaliseability).
 Thus the reduced set will be used for further analysis.
-
 
 
 
@@ -564,7 +563,6 @@ prediction <- predict(
 df_predict$prediction <- factor(
   prediction$predictions,
   levels = c("0", "1"),
-  labels = c("No", "Yes")
 )
 ```
 
@@ -585,13 +583,15 @@ raster_pred_bor <- rast(
 
 ### 8.3 Map visualization
 ```{r}
+levels(raster_pred_bor) <- data.frame(ID = c(0, 1), label = c("No", "Yes"))
+
 ggplot() +
   geom_spatraster(data = raster_pred_bor) +
   scale_fill_viridis_d(
-    na.value = NA,
+    na.value = "grey",
     option = "viridis",
     name = "Waterlogged",
-    labels = c("No","Yes")
+    labels = c("No","Yes", "NA")
   ) +
   theme_classic() +
   labs(title = "Predicted waterlogging at 100 cm depth")
@@ -616,6 +616,7 @@ terra::writeRaster(
 
 ## 9 Hyperparameter tuning - Exercise 3 
 
+### 9.1 Cross-validation preparation
 ```{r}
 # Select predictors
 x_train <- as.data.frame(df_train[, predictors_selected])
@@ -634,7 +635,7 @@ y_test <- factor(
 
 
 ### 9.2 Grid tuning
-Hyperparameter tuning of "mtry" and ""min.node.size".
+
 While the default "minimum node size" for classification is 1, I restricted the tuning grid to values of 2 and above to ensure generaliseability and reduce the risk of the individual trees overfitting to noise in the training set.
 ```{r}
 set.seed(12)
@@ -652,7 +653,7 @@ ctrl <- trainControl(
 )
 ```
 
-### 9.3 Model training
+### 9.3 Model tuning and tuning results
 ```{r}
 set.seed(12)
 rf_bor_cv <- caret::train(
@@ -673,20 +674,21 @@ hyperparameters
 
 
 
-## 10. Evaluation on independent validation set
-Evaluation on the test set. I DONT UNDERSTAND THE VALIDATION METRICS HERE
+### 9.3 Validation performance
+Evaluation on the test set.
 ```{r}
 # Predict class probabilities on validation data
 prob_test <- predict(rf_bor_cv, newdata = x_test, type = "prob")
 ```
 
-### 10.2 ROC curve based on probabilities
+ROC curve based on probabilities
 ```{r}
 roc_test <- roc(y_test, prob_test[, "A_Yes"]) 
 best_threshold_df<- coords(roc_test, "best", ret = "threshold") 
 best_threshold<-best_threshold_df$threshold
 
-# Convert probabilities to classes using optimal threshold
+# Convert probabilities to classes using optimal threshold for avoiding arbitrary 0.5 cutoff. 
+#If the predicted probability higher this threshold, classified waterlogged, else not waterlogged
 pred_test <- ifelse(prob_test[, "A_Yes"] > best_threshold, "A_Yes", "B_No")
 
 pred_test <- factor(pred_test, levels = levels(y_test))
@@ -702,84 +704,17 @@ mosaicplot(cm_test$table)
 
 
 
-
-
 ##Question 3 
 ###Does the model with adjusted hyperparameters perform better? 
-!!!Validation metrics are derived from thresholded probability predictions.
-The ROC curve evaluates discrimination ability independently of a fixed threshold, while the confusion matrix summarizes classification performance at the selected operating point.
-
-
-The tuning slightly improved overall performance (mainly in specificity, positive prediction value and balanced accuracy.
-However the sensitivity slightly dropped so for cases where missed false positives are more costly that false positives I would consider using the untuned model. 
+Comparing the two models, the Untuned Model performs better across all RF-default metrics. It is roughly 1.5% more accurate. That the 95% CIs overlap (72.7%–84.4% for the untuned model and 71.1%-83.1%) tells us that though the untuned model is better, both models perform similarly wee and are stable and reliable. 
+For the final mapping of waterlogging at 100 cm depth, the default settings provided the most reliable results and though this model should be used for spatial upscaling.
 
 
 
-
-
-
-## 10. Random Forest probability model (Exercise 4)
-
-### 10.1 Probability RF model
-```{r}
-rf_prob <- ranger(
-  y = df_train[, target],              
-  x = df_train[, predictors_selected], 
-  seed = 12, 
-  num.threads = parallel::detectCores() - 1, 
-  probability= T
-) 
-
-
-rf_prob    
-
-#extraction of the probability of 1
-probs_1 <- rf_prob$predictions[, "1"]
-```
-
-### 10.2 ROC and AUC analysis (OOB based)
-```{r}
-roc_obj <- roc(
-  response = df_train[, target],
-  predictor = probs_1,
-  levels = c("0", "1"),
-  direction = "<"
-)
-
-# Plot ROC curve
-plot(roc_obj, col = "blue", lwd = 2, main = "ROC Curve - RF unadjusted hyperparameters (OOB)")
-
-# AUC
-auc(roc_obj)
-
-```
-
-
-
-
-
-
-
-
-Consider you inform an infrastructure construction project where waterlogged soils severely jeopardize the stability of the building.(1) Then, consider you inform a project where waterlogged soils are unwanted, but not critical. (2) In both cases, your prediction map of a binary classification is used as a basis and the binary classification is derived from the probabilistic prediction. 
-4.1 How would you chose the threshold in each case? Would you chose the same threshold in both cases? If not, explain why. 
-4.2 Can you think of an analogy of a similarly-natured problem in another realm? (4)
-
-
-
-4.1 I would choose the threshold for the cases based on the relative costs/risks of the error types false positive / false negative. For the safety critical building site (case 1) I would choose a lower threshold to avoid false negatives more strictly. For non-critical cases I would choose a higher threshold (to avoid needless and costly intervention). There are algorithms that one can use to estimate appropriate thresholds like the Bayes Decision Theory (BDT). 
-
-4.2 A similar natured problem could be the screening for a severe disease, that needs immediate treatment, where the cost of a false negative (missing a diseased person) would be very big. Whereas for the screening for a non severe, elective issue I would set  the  threshold higher to avoid false positives and unnecessary invasive follow-up.
-
-
-
-
-
-
+## 10. Random Forest probability model - Exercise 4
 
 Train Probability Model with adjusted hyperparameters: 
 ```{r}
-#Now for boruta selected variables
 rf_prob_adj <- ranger(
  y = df_train[, target], # target variable
   x = df_train[, predictors_selected],  
@@ -798,8 +733,7 @@ probs_1_adj <- rf_prob_adj$predictions[, "1"]
 
 ```
 
-
-ROC hyperparameters adjusted
+### 10.2 ROC and AUC analysis (OOB based)
 ```{r}
 roc_obj_adj <- roc(
   response = df_train[, target],
@@ -818,30 +752,30 @@ auc(roc_obj_adj)
 ```
 
 
-
-
-
-
-Comparison model performance with and without hyperparameter tuning with ROC area under curve. 
-```{r}
-{plot(roc_obj, col="blue", main="ROC: Hyperparameters Non-adjusted vs adjusted")
-lines(roc_obj_adj, col="red") 
-legend("bottomright", legend=c("Prob. NA","Prob. A"), col=c("blue","red"), lwd=2)}
-
-```
-
 OOB prediction error
 ```{r}
-rf_prob$prediction.error # OOB error for unadjusted hyperparameters
-rf_prob_adj$prediction.error # OOB error for adjusted hyperparameters
+rf_prob_adj$prediction.error 
 ```
 
 Interpretation Roc/ AUC
-Both models perform well above random and good (chapter 9.4.1 handful of pixels:  AUC takes values between 0 and 1, with 1 being the best and values of 0.5 (=random) and below being bad.)
-There is only a very slight improvement of the AUC from the untuned model (AUC: 0.8632) to the model with tuned hyperparameter (AUC: 0.8648). 
+The hyperparameter tuned probability model performs well above random and good with an AUC of  0.868. In soil modeling, an AUC above 0.80 is generally considered a high-quality result.
+The models Brier Score of 0.143 is well below the 0.25 (model with no predictive power), which confirms its reliability. 
+These values indicate that the model is not simply guessing categories, but rather provides informative probability estimates for waterlogging at 100 cm depth. 
 
 
 
-We can see that the Boruta selection of parameters is beneficial (slight improvement), while the hyperparameter tuning further but even less strongly improves the performance. Generally we could imply that the hyperparameters chose by default already are quite strong. 
+##Question 4
+Consider you inform an infrastructure construction project where waterlogged soils severely jeopardize the stability of the building.(1) Then, consider you inform a project where waterlogged soils are unwanted, but not critical. (2) In both cases, your prediction map of a binary classification is used as a basis and the binary classification is derived from the probabilistic prediction. 
+### 4.1 
+How would you chose the threshold in each case? Would you chose the same threshold in both cases? If not, explain why. 
+###4.2 
+Can you think of an analogy of a similarly-natured problem in another realm? 
+
+
+4.1 I would choose the threshold for the cases based on the relative costs/risks of the error types false positive / false negative. For the "safety critical building site" (case 1) I would choose a lower threshold to avoid false negatives more strictly. For non-critical cases I would choose a higher threshold (to avoid unneccessary and costly intervention). There are algorithms that one can use to estimate appropriate thresholds like the Bayes Decision Theory (BDT) on which I would base this decision. 
+
+4.2 A similarly natured problem could be the screening for a severe or contageant disease, that needs immediate treatment, where the cost of a false negative (missing a diseased person) would be very big. Whereas for the screening for a non severe and less contageant elective issue, I would set  the  threshold higher to avoid false positives and unnecessary invasive follow-up.
+
+
 
 

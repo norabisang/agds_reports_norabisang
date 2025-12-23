@@ -1,5 +1,5 @@
 ---
-title: "agds_report1_norabisang - Phenology Modelling and Spatial Scaling"
+title: "AGDS Report 1 - Phenology Modelling and Spatial Scaling"
 author: "Nora Bisang"
 output: html_document
 date: "2025-12-16"
