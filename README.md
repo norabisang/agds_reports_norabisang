@@ -28,12 +28,11 @@ This repository contains two geospatial workflows developed for the AGDS course:
 
 ```text
 agds_reports_norabisang/
-├── analysis/       # RMarkdown analysis reports
-├── data-raw/       # Raw data (immutable) and download scripts
+├── analysis/       # RMarkdown analysis reports and HTML files
+├── data-raw/       # Raw data (immutable) 
 ├── data/           # Processed datasets, trained .rds models, and raster outputs
 ├── R/              # Model and helper functions
 ├── fig/            # Phenology map
-├── vignettes/      # Rendered HTML reports
 ├── renv.lock       # Dependency management file
 └── LICENSE         # Project license
 ```
