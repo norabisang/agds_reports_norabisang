@@ -3,6 +3,15 @@ title: "AGDS Report 1 - Phenology Modelling and Spatial Scaling"
 author: "Nora Bisang"
 output: html_document
 date: "2025-12-16"
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,     
+  message = FALSE,   
+  warning = FALSE   
+)
+```
+
 ---
 ## 1. Introduction
 
@@ -229,6 +238,7 @@ optim_par = GenSA::GenSA(
 
 
 ### 4.3 Calibrated model predictions
+
 These optimal parameters can now be plugged back into the model and run across all available years. 
 ```{r}
 # run the model for all years
@@ -250,6 +260,7 @@ The DAYMET raster data to scale the results spatially will be used.
 
 
 ### 5.1 DAYMET data acquisition
+
 The data is downloaded manually from github. Provided by geco-bern Fabian Alexander Bernhard. 
 ```{r}
 library(ncdf4)
@@ -266,6 +277,7 @@ terra::crs(r1) <- "epsg:4326" # Assign CRS
 ```
 
 ### 5.2 Temperature preprocessing
+
 Definition of names and subsetting of the first 180 days for reduction of the memory footprint of the calculations.
 ```{r}
  # Calculate the daily mean values based on 'tmin' and 'tmax'
@@ -287,6 +299,7 @@ terra::plot(mean_layer)
 ```
 
 ### 5.3 Spatial appliance of the GDD model
+
 Appliance of the model to the raster using the the terra::app() function the growing degree day model gdd_model()
 ```{r}
 predicted_phenology <- terra::app(
@@ -298,6 +311,7 @@ predicted_phenology <- terra::app(
 
 
 ### 5.4 Spatial visualisation
+
 Will result in an interactive map of the spatially scaled optimized growing degree model, including the greater Boston area in the south-east to the White Mountains in the north-west.
 ```{r}
 pal <- colorNumeric(
@@ -360,7 +374,7 @@ Smoothing with the Savitzky-Golay-Filter used in chapter 5.3.
 #install.packages("signal")
 library(signal)
 
- NA %in% harvard_temp #no NA which is good :) else would return NAs and we could pre-fill missing days (with interpolation)
+ NA %in% harvard_temp
 
 harvard_temp.smoothed <- harvard_temp %>%
   group_by(year) %>%
@@ -380,7 +394,7 @@ harvard_temp.smoothed <- harvard_temp.smoothed %>%
 ```
 
 
-Comparison of the RMSE with Smoothened Temperatures vs unsmoothened
+Comparison of the RMSE Smoothened Temperatures vs unsmoothened
 ```{r}
 # Compare RMSE before and after smoothing
 rmse_original <- rmse_gdd(optim_par, data)
@@ -413,7 +427,6 @@ Short: the results indicate that the original model is already robust and that t
 Statistically compare the results with the MODIS MCD12Q2 phenology product.
 
 ### 7.1 Spatial and Statistical Comparison
-Compare the data spatially 
 ### 7.2 describe why you might or might not see the same patterns
 ### 7.3 Interpretation and special case of 2010
 Consider that 2010 was a ‘special’ year for the north east of the US
@@ -493,8 +506,6 @@ Visualization
 predicted_resampled <- terra::resample(predicted_phenology, phenology_raster, method = "near")
 
 # Pixel-wise difference btw. DOY predicted by our model and the observed DOY from MODIS:
-#positive -> model predicts later DOY than MODIS
-#negative -> model predicts earlier DOY than MODIS
 difference <- predicted_resampled - phenology_raster
 
 # 1 Plot from MODIS observations
