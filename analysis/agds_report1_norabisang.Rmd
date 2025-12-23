@@ -2,7 +2,7 @@
 title: "AGDS Report 1 - Phenology Modelling and Spatial Scaling"
 author: "Nora Bisang"
 output: html_document
-date: "2025-12-16"
+date: "2025-12-23"
 ---
 
 ```{r setup, include=FALSE}
@@ -22,7 +22,9 @@ This exercize covers the improvement of a temperature-based growing degree day (
 
 ## 2. Data and preprocessing
 
+
 ### Setup libraries
+
 ```{r}
 library(appeears)
 library(dplyr)
@@ -39,6 +41,7 @@ library(sf)
 library(terra)
 library(tidyterra)
 ```
+
 
 
 ### 2.2 PhenoCam data and phenology extraction
@@ -80,8 +83,11 @@ harvard_phenology <- readr::read_csv(
 
 
 
+
 ## 3. Growing Degree Day (GDD) phenology model
 Growing degree days are defined as the cumulative sum of  sum of daily mean temperatures above a specified threshold (T0 , most commonly for deciduous vegetation T0= 5°C). The leaf-out is assumed when a critical accumulation of GDD is reached.
+
+
 
 ### 3.1 Model formulation
 ```{r}
@@ -118,7 +124,9 @@ harvard_phenology <- harvard_phenology |>
 ```
 
 
+
 ### 3.2 Model implementation
+
 ```{r}
 gdd_model <- function(temp, par) {
   # split out parameters from a simple
@@ -207,6 +215,7 @@ rmse_gdd <- function(par, data) {
 ```
  
 
+
 ### 4.2 Parameter optimisation
 
 The parameter "range" was constrained to ranges that are physiologically plausible to reduce computation time/cost and to avoid unrealistic calculations.
@@ -285,6 +294,7 @@ terra::crs(r1) <- "epsg:4326" # Assign CRS
 ```
 
 
+
 ### 5.2 Temperature preprocessing
 
 Definition of names and subsetting of the first 180 days for reduction of the memory footprint of the calculations.
@@ -308,6 +318,7 @@ terra::plot(mean_layer)
 ```
 
 
+
 ### 5.3 Spatial appliance of the GDD model
 
 Appliance of the model to the raster using the the terra::app() function the growing degree day model gdd_model()
@@ -318,6 +329,7 @@ predicted_phenology <- terra::app(
   par = optim_par
 )
 ```
+
 
 
 ### 5.4 Spatial visualisation

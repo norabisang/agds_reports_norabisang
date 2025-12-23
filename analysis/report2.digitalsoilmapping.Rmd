@@ -2,7 +2,7 @@
 title: "AGDS Report 2 - digital soil mapping"
 author: "Nora Bisang"
 output: html_document
-date: "2025-12-16"
+date: "2025-12-23"
 ---
 
 ```{r setup, include=FALSE}
@@ -444,6 +444,7 @@ df_test$pred_basic_class <- prediction_basic$predictions
 
 
 ### 6.2 Confusion matrixes
+
 ```{r}
 # Convert predictions to factor
 df_test$pred_boruta_class <- factor(df_test$pred_boruta_class, levels = c(0, 1))
@@ -460,8 +461,10 @@ confusion_bor <- confusionMatrix(
 )
 
 confusion_bor
+```
 
 
+```{r}
 #basic model
 confusion_basic <- confusionMatrix(
   data = df_test$pred_basic_class,
@@ -474,6 +477,7 @@ confusion_basic
 ```
 
 ### 6.3 OOB 
+
 ```{r}
 rf_basic$prediction.error   
 rf_bor$prediction.error    
@@ -509,6 +513,7 @@ head(df_mask) |>
 
 
 ### 7.2 Loading covariates
+
 ```{r}
 files_covariates <- list.files(
   path = here("data-raw/geodata/covariates/"),
@@ -526,6 +531,7 @@ rast(random_files[2])
 
 
 ### 7.3 Stacking of selected variables
+
 ```{r}
 preds_selected <- rf_bor$forest$independent.variable.names
 
@@ -544,6 +550,7 @@ raster_covariates <- rast(files_selected)
 
 
 ### 7.4 Conversion raster stack to dataframe 
+
 ```{r}
 #Coordinates
 df_locations <- df_mask |>
@@ -562,10 +569,15 @@ df_predict <- cbind(df_locations, df_predict) |>
 ```
 
 
+
+
 ## 8. Spatial prediction and mapping
-The fitted and tested model will now be used for spatial upscaling - creation of a map of waterlogging at 100cm soil depth across study area.
+
+The fitted and tested model will now be used for spatial upscaling, creation of a map of waterlogging at 100cm soil depth across study area.
+
 
 ### 8.1 Pixel-wise prediction
+
 ```{r}
 prediction <- predict(
   rf_bor,
@@ -579,7 +591,9 @@ df_predict$prediction <- factor(
 )
 ```
 
+
 ### 8.2 Raster reconstruction
+
 ```{r}
 # Prepare data for raster
 df_map <- df_predict |>
@@ -595,6 +609,7 @@ raster_pred_bor <- rast(
 
 
 ### 8.3 Map visualization
+
 ```{r}
 levels(raster_pred_bor) <- data.frame(ID = c(0, 1), label = c("No", "Yes"))
 
@@ -614,6 +629,7 @@ ggplot() +
 
 
 ### 8.4 Save GeoTIFF
+
 ```{r}
 terra::writeRaster(
    raster_pred_bor,
@@ -624,6 +640,7 @@ terra::writeRaster(
 )
 
 ```
+
 
 
 
@@ -666,7 +683,9 @@ ctrl <- trainControl(
 )
 ```
 
+
 ### 9.3 Model tuning and tuning results
+
 ```{r}
 set.seed(12)
 rf_bor_cv <- caret::train(
@@ -688,13 +707,15 @@ hyperparameters
 
 
 ### 9.3 Validation performance
+
 Evaluation on the test set.
 ```{r}
 # Predict class probabilities on validation data
 prob_test <- predict(rf_bor_cv, newdata = x_test, type = "prob")
 ```
 
-ROC curve based on probabilities
+
+ROC curve 
 ```{r}
 roc_test <- roc(y_test, prob_test[, "A_Yes"]) 
 best_threshold_df<- coords(roc_test, "best", ret = "threshold") 
@@ -717,12 +738,14 @@ mosaicplot(cm_test$table)
 
 
 
+
 ## Question 3 
 
 Does the model with adjusted hyperparameters perform better? 
 
 Comparing the two models, the Untuned Model performs better across all RF-default metrics. It is ~ 1.5% more accurate. That the 95% CIs overlap (72.7%–84.4% for the untuned model and 71.1%-83.1% for the tuned model) tells us that though the untuned model is better, both models perform similarly well and are stable and reliable. 
 For the final mapping of waterlogging at 100 cm depth, the default settings provided the most reliable results and though this model should be used for spatial upscaling.
+
 
 
 
@@ -748,7 +771,9 @@ probs_1_adj <- rf_prob_adj$predictions[, "1"]
 
 ```
 
-### 10.2 ROC and AUC analysis (OOB based)
+
+### 10.2 ROC and AUC analysis 
+
 ```{r}
 roc_obj_adj <- roc(
   response = df_train[, target],
@@ -766,10 +791,13 @@ auc(roc_obj_adj)
 
 ```
 
+
 Brier Score
 ```{r}
 rf_prob_adj$prediction.error 
 ```
+
+
 
 Interpretation Roc/ AUC
 The hyperparameter tuned probability model performs well above random and good with an AUC of  0.868. In soil modeling, an AUC above 0.80 is generally considered a high-quality result.
@@ -787,15 +815,13 @@ Consider you inform an infrastructure construction project where waterlogged soi
 
 How would you chose the threshold in each case? Would you chose the same threshold in both cases? If not, explain why. 
 
+I would choose the threshold for the cases based on the relative costs/risks of the error types false positive / false negative. For the "safety critical building site" (case 1) I would choose a lower threshold to avoid false negatives more strictly. For non-critical cases I would choose a higher threshold (to avoid unneccessary and costly intervention). There are algorithms that one can use to estimate appropriate thresholds like the Bayes Decision Theory (BDT) on which I would base this decision. 
+
+
 ### 4.2 
 
 Can you think of an analogy of a similarly-natured problem in another realm? 
 
-
-4.1
-I would choose the threshold for the cases based on the relative costs/risks of the error types false positive / false negative. For the "safety critical building site" (case 1) I would choose a lower threshold to avoid false negatives more strictly. For non-critical cases I would choose a higher threshold (to avoid unneccessary and costly intervention). There are algorithms that one can use to estimate appropriate thresholds like the Bayes Decision Theory (BDT) on which I would base this decision. 
-
-4.2 
 A similarly natured problem could be the screening for a severe or contageant disease, that needs immediate treatment, where the cost of a false negative (missing a diseased person) would be very big. Whereas for the screening for a non severe and less contageant elective issue, I would set  the  threshold higher to avoid false positives and unnecessary invasive follow-up.
 
 
