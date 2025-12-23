@@ -6,28 +6,31 @@ date: "2025-12-16"
 ---
 ## 1. Introduction
 
-In this exercize covers improvement of a temperature-based growing degree day (GDD) phenology model and spatial scaling. Phenological transition dates, which are derived from PhenoCam data are used to calibrate a leaf-out model. This is then applied spatially using DAYMET temperature data and compared to the MODIS MCD12Q2 phenology product.
+This exercize covers the improvement of a temperature-based growing degree day (GDD) phenology model as well as spatial upscaling. Phenological transition dates, which are derived from PhenoCam data are used to create a leaf out model. This is then applied spatially using DAYMET temperature data and compared to the MODIS MCD12Q2 phenology product. 
 
 
-# 2. data
+## 2. Data and preprocessing
 
-setup of libraries
+###setup of libraries
 ```{r}
-library(keyring)
 library(appeears)
-library(sf)
-library(here)
-library(terra)
-library(ggplot2)
-library(leaflet)
-library(htmlwidgets)
-library(phenocamr)
 library(dplyr)
-
+library(ggplot2)
+library(geodata)
+library(here)
+library(htmlwidgets)
+library(keyring)
+library(leaflet)
+library(lubridate)
+library(MODISTools)
+library(phenocamr)
+library(sf)
+library(terra)
+library(tidyterra)
 ```
 
 
-## 2.1 PhenoCam data and phenology extraction
+### 2.2 PhenoCam data and phenology extraction
 The phenocamr R package uses the PhenoCam API to access the latest GCC time series and derive phenology using a threshold-based methodology. The phenocamr API call also downloads DAYMET data, which includes both daily minimum and maximum data. 
 ```{r}
 # download greenness time series,
@@ -50,7 +53,7 @@ harvard_phenocam_data <- readr::read_csv(
 
 # reading in harvard phenology only retaining
 # spring (rising) phenology for the GCC 90th
-# percentile time series (the default)
+# percentile time series
 harvard_phenology <- readr::read_csv(
   file.path(
     tempdir(),
@@ -65,11 +68,11 @@ harvard_phenology <- readr::read_csv(
 ```
 
 
-### 2.2 Growing Degree Day (GDD) model
-Growing degree days are defined as the cumulative sum of temperatures above a specified threshold (T0 , most commonly T0= 5°C). Here we implement the GDD. 
+## 3. Growing Degree Day (GDD) phenology model
+Growing degree days are defined as the cumulative sum of  sum of daily mean temperatures above a specified threshold (T0 , most commonly for deciduous vegetation T0= 5°C). The leaf-out is assumed when a critical accumulation of GDD is reached.
+
+### 3.1 Model formulation
 ```{r}
-# return mean daily temperature as well
-# as formal dates (for plotting)
 harvard_temp <- harvard_phenocam_data |>
   group_by(year) |>
   dplyr::mutate(
@@ -103,7 +106,7 @@ harvard_phenology <- harvard_phenology |>
 ```
 
 
-The GDD-based leaf-out model can be written in the form of a function that takes the temperature time series as its first argument, and as two parameters the temperature threshold above which temperatures are accumulated, and the critical GDD that determines the DOY at which leaf-out is predicted.
+### 3.2 Model implementation
 ```{r}
 gdd_model <- function(temp, par) {
   # split out parameters from a simple
@@ -126,13 +129,15 @@ gdd_model <- function(temp, par) {
 ```
 
 
-Running the model on the original 2010 data with the previously observed values and parameters 5°C for the temperature threshold and 130.44°C for the critical GDD, should yield a predicted leaf-out date that matches the observed leaf-out date of 114.
+### 3.3 Model verification
+
+Running the model on the original 2010 data with the previously observed values and parameters.
+(first evaluation for the year 2010 to verify that calculated parameter values reproduce the observed leaf-out date)
 ```{r}
-# confirm that the model function
-# returns expected results
-# (we filter out the year 2010, but
+
+# filter out the year 2010, 
 # removing the filter would run the
-# model for all years!)
+# model for all years
 prediction <- harvard_temp |>
   dplyr::filter(
     year == 2010
@@ -148,8 +153,13 @@ prediction <- harvard_temp |>
 print(prediction)
 ```
 
-### 2.3 Model calibration and optimization
-The optimization minimizes the root mean squared error (RMSE) between the observed and the predicted values.
+
+
+## 4. Model calibration and optimization
+
+### 4.1 Function
+Calibration of parameters with minimizing the root mean squared error  between observed and predicted leaf-out dates over years.
+
 ```{r}
 # run model and compare to true values
 # returns the RMSE
@@ -159,8 +169,7 @@ rmse_gdd <- function(par, data) {
   drivers <- data$drivers
   validation <- data$validation
   
-  # calculate phenology predictions
-  # and put in a data frame
+
   predictions <- drivers |>
     group_by(year) |>
     summarise(
@@ -184,9 +193,11 @@ rmse_gdd <- function(par, data) {
 
 ```
  
- 
-Limitation of parameter space to reduce computation, as temperature thresholds fall within a range that is determined by physiological limits of plant activity.
-This is the optimization routine, the optimal parameters for the temperature threshold and number of accumulation days respectively will be determined.
+### 4.2 Parameter optimisation
+
+The parameter "range" was constrained to ranges that are physiologically plausible to reduce computation time/cost and to avoid unrealistic calculations.
+
+Optimization routine: the optimal parameters for the temperature threshold and number of accumulation days will be determined.
 ```{r}
 # starting model parameters
 par = c(0, 130)
@@ -217,6 +228,7 @@ optim_par = GenSA::GenSA(
 ```
 
 
+### 4.3 Calibrated model predictions
 These optimal parameters can now be plugged back into the model and run across all available years. 
 ```{r}
 # run the model for all years
@@ -232,11 +244,12 @@ predictions <- harvard_temp |>
 ```
 
 
-### 2.4 Spatial scaling using DAYMET
-
+## 5. Spatial scaling using DAYMET temperature data
 A region around Boston in the eastern United States will be used, defined by the coordinates -72 to -70 East, and 42 to 44 North. 
-The DAYMET raster data to scale the results spatially will be used. First both minimum and maximum temperature data will be downloaded and averaged to a mean daily value, using the appeears R package (Hufkens 2023).
+The DAYMET raster data to scale the results spatially will be used.
 
+
+### 5.1 DAYMET data acquisition
 The data is downloaded manually from github. Provided by geco-bern Fabian Alexander Bernhard. 
 ```{r}
 library(ncdf4)
@@ -252,7 +265,7 @@ terra::crs(r1) <- "epsg:4326" # Assign CRS
 
 ```
 
-
+### 5.2 Temperature preprocessing
 Definition of names and subsetting of the first 180 days for reduction of the memory footprint of the calculations.
 ```{r}
  # Calculate the daily mean values based on 'tmin' and 'tmax'
@@ -273,8 +286,8 @@ terra::plot(mean_layer)
   
 ```
 
-
-Appliance of the model to this raster using the the terra::app() function the growing degree day model gdd_model()
+### 5.3 Spatial appliance of the GDD model
+Appliance of the model to the raster using the the terra::app() function the growing degree day model gdd_model()
 ```{r}
 predicted_phenology <- terra::app(
   ma_nh_temp,
@@ -284,12 +297,9 @@ predicted_phenology <- terra::app(
 ```
 
 
-Plotting of the predicted phenology. 
-Will result in an interactive map of the spatially scaled optimized growing degree model using DAYMET daily mean temperature data for tile 11935, including the greater Boston area in the south-east to the White Mountains in the north-west.
+### 5.4 Spatial visualisation
+Will result in an interactive map of the spatially scaled optimized growing degree model, including the greater Boston area in the south-east to the White Mountains in the north-west.
 ```{r}
-library(leaflet)
-
-# set te colour scale manually
 pal <- colorNumeric(
   "magma",
   values(predicted_phenology),
@@ -297,8 +307,6 @@ pal <- colorNumeric(
   )
 
 # build the leaflet map
-# using ESRI tile servers
-# and the loaded demo raster
 leaflet() |> 
   addProviderTiles(providers$Esri.WorldImagery, group = "World Imagery") |>
   addProviderTiles(providers$Esri.WorldTopoMap, group = "World Topo") |>
@@ -321,32 +329,33 @@ leaflet() |>
 ```
 
 
-#Exercize Questions
+## 6. Model improvement and evaluation
 
-## Question 1: Model Improvement 
+### 6.1 Conceptual model improvements- Question 1
 How can you improve the model used to regionally scale the results in Chapter 6?
 Provide at least three ways to improve the model used.
+Implement at least one of these methods
  
-### 1.1: 
+### 6.1a: 
 Cross-validation across years (temporal) and/or across space (spatial). 
 This would allow assessment of the generalizability of the GDD model. 
 If the model predicts well over different validation folds, this suggests that it captures true biological relationships rather than noise (-> Overfitting!). And thus would improve robustness and reliability of the model. 
 
 
-### 1.2
+### 6.1b:
 Smoothing of the temperature (with eg Savitzky–Golay)
 A smoothing window (of eg. 3days) could be used before accumulation of GDD. This would make our GDD less sensitive to isolated single day warm or cold spikes, which are not very likely to shift buddburst substantially, which would reduce variance caused by noise in early months of the year. At the same time the temperature rise dynamics would still be preserved. Further, smoothed temperature time series would lead to smoother residuals, which then would make downstream regression or kNN corrections more stable and less sensitive to random variance. 
     
 
-### 1.3
+### 6.1c:
 Our GDD model assumes that each day with Temperature mean >5°C contributes equally to plant development, in reality though, plant development could also accelerate, be slower or plateau. We could apply a machine learning approach such as K-Nearest Neighbour (As in chapter 10), which is really good at pattern recognition and non-linear relationships. These would be beneficial in our model as especially when not only cumulative growing days matter but the climate variability patterns have influence on the (like frost events or really warm periods) it would be able to learn the relationship from the data with no need for an assumption about the form. 
   
   
   
-## Question 2: Implementation Model Improvement 
-Implement at least one of these methods
+### 6.2 Implementation of temperature smoothing
 
-I implement the smoothing with the Savitzky-Golay-Filter used in chapter 5.3. 
+
+Smoothing with the Savitzky-Golay-Filter used in chapter 5.3. 
 ```{r}
 #install.packages("signal")
 library(signal)
@@ -359,7 +368,7 @@ harvard_temp.smoothed <- harvard_temp %>%
     tmean_smooth = signal::sgolayfilt(tmean, p = 3, n = 5))  # smaller n for daily data
  
 #usually for GDD calculations a window of n=3-7 is used. I choose a 5-day moving window (2 days before and 2 after), which smooths out random daily noise but keeps the overall warming trend intact.
-#Polynomial of 3 matches as can capture slight “S”-shapes, which are typical in temperature curves, without overfitting.
+#Polynomial of 3 matches, as it can capture slight “S”-shapes, which are typical in temperature curves, without overfitting.
 
 
 harvard_temp.smoothed <- harvard_temp.smoothed %>%
@@ -369,37 +378,60 @@ harvard_temp.smoothed <- harvard_temp.smoothed %>%
 
 
 ```
- #HERE USE DO ALSO ANALYSE IT OR IMPLEMENT!!!!!
-
-## Question 3: Statistical Comparison
-Statistically compare the results with the MODIS MCD12Q2 phenology product.
-### 3.1 compare the data spatially 
-### 3.2 describe why you might or might not see the same patterns
-### 3.3 consider that 2010 was a ‘special’ year for the north east of the US
 
 
-###3.1
-
-Spatial comparison that shows how the DOY differ between the prediction of the Model and the MODIS data.   
-Loading of the MODIS phenology product. 
+Comparison of the RMSE with Smoothened Temperatures vs unsmoothened
 ```{r}
-# load libraries
-library(geodata)
+# Compare RMSE before and after smoothing
+rmse_original <- rmse_gdd(optim_par, data)
 
+#overwriting tmean with smoothened for function
+harvard_temp.smoothed <- harvard_temp.smoothed |>
+  mutate(tmean = tmean_smooth)
+
+
+rmse_smoothed <- rmse_gdd(
+  optim_par,
+  list(
+    drivers = harvard_temp.smoothed,
+    validation = harvard_phenology
+  )
+)
+
+rmse_original
+rmse_smoothed
+
+```
+
+The unsmoothed GDD model achieved an RMSE of 4.39 days, while the model using smoothed temperature inputs achieved a slightly higher RMSE of 4.70 days. This indicates that temperature smoothing does not improve, but rather slightly degrades, the performance for leaf-out timing of this threshold-based GDD. 
+One possible explanation is that also short-term warming in early spring contribute meaningfully to heat accumulation and biological development. And as smoothing dampens these signals, it delays the day of threshold reaching. 
+Short: the results indicate that the original model is already robust and that temperature smoothing is not beneficial in this context.
+
+
+
+##7 Comparison with MODIS phenology - Question 3
+Statistically compare the results with the MODIS MCD12Q2 phenology product.
+
+### 7.1 Spatial and Statistical Comparison
+Compare the data spatially 
+### 7.2 describe why you might or might not see the same patterns
+### 7.3 Interpretation and special case of 2010
+Consider that 2010 was a ‘special’ year for the north east of the US
+
+
+###7.1
+
+Spatial comparison showing the DOY difference between the prediction and the MODIS data.   
+```{r}
 # download SRTM data
-# This stores file srtm_38_03.tif in 
-# subfolder elevation of tempdir()
 geodata::elevation_3s(
     lat = 43,
     lon = -71,
     path = tempdir()
   )
 
-# read the downloaded data
-# use file.path() to combine
 
-library(terra)
-# My path is: 
+
 dem_file <- file.path(tempdir(), "elevation", "srtm_22_04.tif")
 # Loading of raster
 dem <- rast(dem_file)
@@ -412,17 +444,11 @@ crs(dem)
 
 
 
-
 ```{r}
-# load libraries
-library(MODISTools)
-
-#coordinates -72 to -70 East, and 42 to 44 North
-
 # download and save phenology data
 phenology <- MODISTools::mt_subset(
   product = "MCD12Q2",
-  lat = 43,            #for coordinates I use midpoint of longitude/ latitude
+  lat = 43,            #midpoint of longitude/ latitude
   lon = -71,            
   band = "Greenup.Num_Modes_01",
   start = "2012-01-01",
@@ -437,7 +463,7 @@ phenology <- MODISTools::mt_subset(
 ```
 
 
-Conversion of the integer values, counted from 1970, to day-of-year values (using as.Date() and format()). We only consider phenological events in the first 200 days of the year.
+Conversion of the integer values, counted from 1970, to day-of-year values. Only considering phenological events in the first 200 days of the year.
 ```{r}
 # screening of data
 phenology <- phenology |>
@@ -463,15 +489,11 @@ phenology_raster <- MODISTools::mt_to_terra(
 
 Visualization
 ```{r}
-library(terra)
-library(ggplot2)
-library(tidyterra)
-
-# Ensure rasters align (resample GDD raster to MODIS grid if needed)
+# Ensure rasters align 
 predicted_resampled <- terra::resample(predicted_phenology, phenology_raster, method = "near")
 
 # Pixel-wise difference btw. DOY predicted by our model and the observed DOY from MODIS:
-#positive ->model predicts later DOY than MODIS
+#positive -> model predicts later DOY than MODIS
 #negative -> model predicts earlier DOY than MODIS
 difference <- predicted_resampled - phenology_raster
 
@@ -498,6 +520,12 @@ ggplot() +
 
 Statistical comparison that shows that the DOY differ between the prediction of the Model and the MODIS data. 
 ```{r}
+df <- na.omit(data.frame(
+  MODIS = values(phenology_raster),
+  GDD = values(predicted_resampled)
+))
+
+
 colnames(df) <- c("MODIS", "GDD")
 
 cor(df$MODIS, df$GDD, use = "complete.obs") # 0.3886199
@@ -508,32 +536,29 @@ mean(df$GDD - df$MODIS, na.rm = TRUE) #9.973585
 ```
 
 
-### 3.2
+Spatial comparison (pixelwise) between the GDD phenology predictions and the MODIS observations shows moderate positive correlation with r = 0.39. THis indicates that the model captures larger-scale spatial gradients in phenology. Both datasets show climatic gradients related to latitude and difference in temperature from coast to inland. However, the model predicts leaf-out on average 9.97 days later than observed by MODIS, which could be due to systematic positive bias. Reasons for that could be: differences in phenological definitions, spatial resolution, vegetation heterogeneity, as well as the  possibility of MODIS detecting canopy greening earlier than temperature-based leaf-out thresholds.
 
-Pixelwise spatial comparison between the GDD phenology predictions and the MODIS observations shows moderate positive correlation with r = 0.39. THis indicates that the model captures large-scale spatial gradients in phenology. Both datasets show climatic gradients related to latitude and difference in temperature from coast to inland. However, the model predicts leaf-out on average 9.97 days later than observed by MODIS, which could be due to systematic positive bias. Reasons for that could be: differences in phenological definitions, spatial resolution, vegetation heterogeneity, as well as the  possibility of MODIS detecting canopy greening earlier than temperature-based leaf-out thresholds.
 
+### 7.2 
 Similar spatial patterns are expected because both approaches are somehow linked to temperature: directly in the GDD model through accumulated mean temperature, and indirectly in the MODIS observations through temperature-driven vegetation greening. Still, several factors can lead to differences between the two products. As MODIS does not measure temperature but detects changes in surface reflectance, it can be influenced by cloud cover, snow, and sensor related noise. Further, the GDD model assumes homogeneous vegetation responses and does not account for heterogeneity in species composition, microclimate and topography. Differences in spatial resolution between the DAYMET-driven model and the MODIS observations could further contribute to mismatches, particularly in heterogeneous landscapes.
 
 
-### 3.3
-2010 was a special year as the DOY for leaf-out was earlier than normal.Leaf-out requires the accumulation of a certain amount of heat (GDD), so warmer springs reach the threshold sooner and thus result in earlier greening up. This indicates a warmer spring than normal. 
-Below I calculated GDD accumulation  during early spring period (DOY 60–120) as I expect the biologically relevant window for bud development to lie in these days. Visible in the summary and plot are higher GDD values in 2010 and 2012 which indicate earlier spring warming that leads to earlier phenology and thus DOY for budd-out. In the mean temperature March-April is well visible that mean temperatures indeed were exceptionally high. 
-
+### 7.3
 
 ```{r}
-library(dplyr)
 library(lubridate)
-
 harvard_temp <- harvard_temp %>%
   mutate(doy = yday(date))   # create day-of-year column
 
 
 spring_summary <- harvard_temp %>%
-  filter(doy >= 60 & doy <= 120) %>%   # I choose days 60 -120 as this is ~spring 
-  group_by(year) %>%
-  summarize(
+  dplyr::mutate(doy = lubridate::yday(date)) %>%   # DOY existing
+  dplyr::filter(doy >= 60 & doy <= 120) %>%        # explicitly dplyr
+  dplyr::group_by(year) %>%
+  dplyr::summarize(
     mean_temp = mean(tmean, na.rm = TRUE),
-    gdd_cum = sum(ifelse(tmean >= 5, tmean - 5, 0))
+    gdd_cum = sum(ifelse(tmean >= 5, tmean - 5, 0)),
+    .groups = "drop"
   )
 
 spring_summary
@@ -552,7 +577,9 @@ ggplot(spring_summary, aes(x = year)) +
 
 ```
 
-
+2010 was a special year as the DOY for leaf-out was earlier than usual. Leaf-out requires the accumulation of a certain amount of heat (GDD), so warmer springs reach the threshold sooner and thus result in earlier greening up. This indicates a warmer spring than normal. 
+The calculated GDD accumulation cover early spring period (DOY 60–120) as I expect the biologically relevant window for bud development to lie in these days. 
+Visible in the summary and plot are higher GDD values in 2010 and 2012 which indicate earlier spring warming, leading to earlier phenology and thus earlier DOY for budd-out. In the mean temperature March-April is well visible that mean temperatures indeed were exceptionally high. 
 
 
 
