@@ -19,9 +19,10 @@ knitr::opts_chunk$set(
 This exercize covers the improvement of a temperature-based growing degree day (GDD) phenology model as well as spatial upscaling. Phenological transition dates, which are derived from PhenoCam data are used to create a leaf out model. This is then applied spatially using DAYMET temperature data and compared to the MODIS MCD12Q2 phenology product. 
 
 
+
 ## 2. Data and preprocessing
 
-###setup of libraries
+### Setup libraries
 ```{r}
 library(appeears)
 library(dplyr)
@@ -76,6 +77,7 @@ harvard_phenology <- readr::read_csv(
     gcc_value == "gcc_90"
   )
 ```
+
 
 
 ## 3. Growing Degree Day (GDD) phenology model
@@ -165,6 +167,7 @@ print(prediction)
 
 
 
+
 ## 4. Model calibration and optimization
 
 ### 4.1 Function
@@ -203,6 +206,7 @@ rmse_gdd <- function(par, data) {
 
 ```
  
+
 ### 4.2 Parameter optimisation
 
 The parameter "range" was constrained to ranges that are physiologically plausible to reduce computation time/cost and to avoid unrealistic calculations.
@@ -238,6 +242,7 @@ optim_par = GenSA::GenSA(
 ```
 
 
+
 ### 4.3 Calibrated model predictions
 
 These optimal parameters can now be plugged back into the model and run across all available years. 
@@ -253,6 +258,8 @@ predictions <- harvard_temp |>
   )  
   )
 ```
+
+
 
 
 ## 5. Spatial scaling using DAYMET temperature data
@@ -277,6 +284,7 @@ terra::crs(r1) <- "epsg:4326" # Assign CRS
 
 ```
 
+
 ### 5.2 Temperature preprocessing
 
 Definition of names and subsetting of the first 180 days for reduction of the memory footprint of the calculations.
@@ -298,6 +306,7 @@ names(mean_layer) <- gsub("tmax","tmean",names(mean_layer))
 terra::plot(mean_layer)
   
 ```
+
 
 ### 5.3 Spatial appliance of the GDD model
 
@@ -344,12 +353,16 @@ leaflet() |>
 ```
 
 
+
+
 ## 6. Model improvement and evaluation
+
 
 ### 6.1 Conceptual model improvements- Question 1
 How can you improve the model used to regionally scale the results in Chapter 6?
 Provide at least three ways to improve the model used.
 Implement at least one of these methods
+ 
  
 ### 6.1a: 
 Cross-validation across years (temporal) and/or across space (spatial). 
@@ -426,13 +439,17 @@ Short: the results indicate that the original model is already robust and that t
 
 
 
+
 ## 7 Comparison with MODIS phenology - Exercize 3
+
 
 ### 7.1 Spatial and Statistical Comparison
 Statistically and Spatially compare the results with the MODIS MCD12Q2 phenology product.
 
+
 ### 7.2 Patterns
 Describe why you might or might not see the same patterns
+
 
 ### 7.3 Special case of 2010
 Consider that 2010 was a ‘special’ year for the north east of the US

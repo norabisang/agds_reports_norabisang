@@ -48,12 +48,6 @@ library(pROC)
 Loading dataset containing soil observations and site metadata used for model calibration and validation.
 ```{r}
 df_full <- readRDS(here("data-raw", "df_full.rds"))
-
-# # Load soil data from sampling locations
-#get an overview of the df_full 
-head(df_full)
-names(df_full)
-
 ```
 
 
@@ -76,13 +70,6 @@ list_raster <- list.files(
   here::here("data-raw/geodata/covariates/"),
   full.names = TRUE
 )
-
-# Display file names
-map(
-  list_raster,
-  ~ basename(.)
-) |>
-  head()
 
 ```
 
@@ -147,6 +134,7 @@ sampling_xy <- df_obs |>
 
 
 ### 3.2 Extraction at sampling locations
+
 Merging of of soil data and covariates data by their coordinates.
 ```{r}
 # From all rasters, extract values for sampling coordinates
@@ -157,14 +145,11 @@ df_covars <- terra::extract(
   )
 
 df_full <- cbind(df_obs, df_covars)
-
-head(df_full) |> 
-  knitr::kable() 
-
 ```
 
 
 ### 3.3 Detection categroical variables
+
 Variables with 10 or less different values are treated as categorical, assuming they represent classes rather than continuous gradients.
 ```{r}
 vars_categorical <- df_covars |>
@@ -193,6 +178,7 @@ df_full <- df_full |>
 
 
 ### 3.4 Missing Data
+
 Missing data is examined by computing the percentage of non-missing observations for each predictor variable. For subsequent analysis dataset can be used without removal of variable, as the proportion of missing values is low.
 ```{r}
 n_rows <- nrow(df_full)
@@ -339,6 +325,7 @@ gg
 
 
 ### 5.2 Variable Selection
+
 Note that this algorithms does not assess all possible combinations of predictors_all and may thus not find the “globally” optimal model.
 ```{r}
 #install.packages("Boruta")
@@ -375,7 +362,8 @@ ggplot2::ggplot(ggplot2::aes(x = reorder(rowname, meanImp),
 ```
 
 
-### 5.3 Retiring of the confirmed variable
+### 5.3 Retiring Confirmed variable
+
 ```{r}
 # get retained important variables
 predictors_selected <- df_bor |>
@@ -386,10 +374,11 @@ length(predictors_selected)
 ```
 
 
-### 5.4 Retaining RF with the "Confirmed" variables
+### 5.4 Retraining RF 
+
 Retraining random forest with only the "Confirmed" predictor variables
 ```{r}
-# re-train Random Forest model
+
 rf_bor <- ranger(
   y = df_train[, target], 
   x = df_train[, predictors_selected], 
@@ -405,6 +394,7 @@ rf_bor
 
 
 ### 5.5 Safe files
+
 ```{r}
 saveRDS(rf_basic,                   
         here::here("data/rf_for_waterlog_100_basic.rds"))
@@ -430,7 +420,7 @@ saveRDS(df_test[, c(target, predictors_selected)],
 ### Model Comparison - Exercize 2
 Compare the skill of the models with all predictors and with the Boruta-informed reduced set of predictors.
 
-###6.1 Predictions
+### 6.1 Predictions
 ```{r}
 prediction_bor <- predict(
   rf_bor,
@@ -797,7 +787,7 @@ Consider you inform an infrastructure construction project where waterlogged soi
 
 How would you chose the threshold in each case? Would you chose the same threshold in both cases? If not, explain why. 
 
-###4.2 
+### 4.2 
 
 Can you think of an analogy of a similarly-natured problem in another realm? 
 
